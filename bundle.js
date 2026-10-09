@@ -20,10 +20,11 @@
       logoutBtn: "Sign Out",
       accessDenied: "Access Denied: You do not have permission for this module. Contact administrator.",
       loginTitle: "Sign In to SocialPair Hub",
-      loginSubtitle: "Admin Username: yqcw / Password: 123456",
+      loginSubtitle: "Please sign in with your first name (name).",
       usernameLabel: "Username (name)",
       passwordLabel: "Password",
       loginSubmit: "Sign In Now",
+      loginNamePlaceholder: "Please use your name to sign in, e.g. Kevin",
       invalidAuth: "Invalid username or password.",
       adminTitle: "User & Permission Management Console",
       addUserBtn: "+ Add New User",
@@ -114,10 +115,11 @@
       logoutBtn: "退出登录",
       accessDenied: "访问受限：您没有该功能的访问权限，请联系管理员赋权。",
       loginTitle: "登录 SocialPair 匹配调度平台",
-      loginSubtitle: "管理员用户名：yqcw / 密码：123456",
+      loginSubtitle: "请使用姓名（名）登录。",
       usernameLabel: "用户名 (name)",
       passwordLabel: "密码",
       loginSubmit: "立即登录",
+      loginNamePlaceholder: "请使用 名登录 例如 Kevin",
       invalidAuth: "用户名或密码错误。",
       adminTitle: "用户与系统选项权限管理中心",
       addUserBtn: "+ 添加新用户",
@@ -211,16 +213,9 @@
   }
 
   // --------------------------------------------------------------------------
-  // 2. Core Store Engine (Cloudflare D1 Database API + Local Sync)
+  // 2. Core Store Engine (Cloudflare D1 via /api/* Pages Functions)
   // --------------------------------------------------------------------------
-  const STORAGE_KEY = 'socialpair_hub_db_v6';
-  
-  // Cloudflare D1 Database Configuration
-  const D1_CONFIG = {
-    dbName: 'pairfast',
-    database_id: 'b123a88e-4ea9-43c8-8960-3d83241c28de'
-  };
-
+  const SESSION_KEY = 'socialpair_hub_session_v1';
   const CALGARY_HQ = {
     name: 'TCG Machines Calgary Office',
     address: '7019 8 St NE, Calgary, AB T2E 8A2',
@@ -228,95 +223,174 @@
     lng: -114.0436
   };
 
-  // Seed Data: Admin 'yqcw' + 3 Users (Default Permission: Option B Activity Teamup)
-  // Default Availability: Thursday 17:00-18:00 (this-Thu-17:00 & this-Thu-17:30)
-  const initialSeed = {
-    lang: 'en',
-    currentUserId: null,
-    isLoggedIn: false, // DEFAULT SIGNED OUT
-    users: [
-      { id: 'u1', name: 'yqcw', password: '123456', role: 'admin', permissions: ['A', 'B', 'C'], avatar: '👑', phone: '+1 (403) 999-0001' },
-      { id: 'u2', name: 'Ghai', password: '123456', role: 'user', permissions: ['B'], avatar: '👨‍💻', phone: '+1 (403) 012-3456' },
-      { id: 'u3', name: 'CJ', password: '123456', role: 'user', permissions: ['B'], avatar: '👨‍🎨', phone: '+1 (403) 014-7890' },
-      { id: 'u4', name: 'Joshua', password: '123456', role: 'user', permissions: ['B'], avatar: '👨‍💻', phone: '+1 (403) 018-4321' }
-    ],
-    games: [
-      { id: 'g1', name: 'Pickleball (匹克球)', icon: '🏓', color: '#11b8a6' },
-      { id: 'g2', name: 'Table Tennis (乒乓球)', icon: '🏓', color: '#6557ff' },
-      { id: 'g3', name: 'Billiards (台球)', icon: '🎱', color: '#ff7a59' },
-      { id: 'g4', name: 'Board Game (桌游)', icon: '🎲', color: '#8f7cff' },
-      { id: 'g5', name: 'Badminton (羽毛球)', icon: '🏸', color: '#06b6d4' }
-    ],
-    userGamePreferences: {
-      'u1': { slots: ['this-Thu-17:00', 'this-Thu-17:30'], gameIds: ['g1', 'g2'] },
-      'u2': { slots: ['this-Thu-17:00', 'this-Thu-17:30'], gameIds: ['g1', 'g3'] },
-      'u3': { slots: ['this-Thu-17:00', 'this-Thu-17:30'], gameIds: ['g1', 'g2'] },
-      'u4': { slots: ['this-Thu-17:00', 'this-Thu-17:30'], gameIds: ['g2', 'g4'] }
-    },
-    gameMatches: [],
-    carpoolProfiles: {
-      'u1': { lat: 51.0447, lng: -114.0719, addressName: 'Downtown Calgary, AB', hasCar: true, workTime: '08:30', homeTime: '18:00', workStatus: ['offering'], homeStatus: ['offering'] },
-      'u2': { lat: 51.0550, lng: -114.0850, addressName: 'Sunnyside, Calgary, AB', hasCar: false, workTime: '08:30', homeTime: '18:00', workStatus: ['seeking'], homeStatus: ['seeking'] },
-      'u3': { lat: 51.0350, lng: -114.0500, addressName: 'Beltline, Calgary, AB', hasCar: true, workTime: '08:30', homeTime: '18:00', workStatus: ['offering', 'seeking'], homeStatus: ['seeking'] },
-      'u4': { lat: 51.0800, lng: -114.0600, addressName: 'Mount Pleasant, Calgary, AB', hasCar: true, workTime: '08:30', homeTime: '18:00', workStatus: ['offering'], homeStatus: ['seeking'] }
-    },
-    carpoolMatches: []
-  };
+  async function api(path, options = {}) {
+    const res = await fetch('/api/' + path.replace(/^\//, ''), {
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) { data = null; }
+    if (!res.ok) {
+      const msg = (data && data.error) || ('API ' + res.status);
+      throw new Error(msg);
+    }
+    return data;
+  }
 
   class Store {
     constructor() {
-      this.data = this.load();
-      this.autoGenerateGameMatches();
+      this.ready = false;
+      this.data = {
+        lang: 'en',
+        currentUserId: null,
+        isLoggedIn: false,
+        users: [],
+        games: [],
+        userGamePreferences: {},
+        gameMatches: [],
+        carpoolProfiles: {},
+        carpoolMatches: []
+      };
+      this._loadSession();
     }
-    load() {
+
+    _loadSession() {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed.users && parsed.users.length > 0) {
-            return parsed;
-          }
-        }
-      } catch (e) { console.warn(e); }
-      return JSON.parse(JSON.stringify(initialSeed));
+        const raw = sessionStorage.getItem(SESSION_KEY);
+        if (!raw) return;
+        const s = JSON.parse(raw);
+        this.data.currentUserId = s.currentUserId || null;
+        this.data.isLoggedIn = !!s.isLoggedIn;
+        if (s.lang) this.data.lang = s.lang;
+      } catch (_) { /* ignore */ }
     }
-    save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data)); }
+
+    _saveSession() {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        currentUserId: this.data.currentUserId,
+        isLoggedIn: this.data.isLoggedIn,
+        lang: this.data.lang || getLang()
+      }));
+    }
+
+    async hydrate() {
+      const remote = await api('bootstrap');
+      this.data.users = remote.users || [];
+      this.data.games = remote.games || [];
+      this.data.userGamePreferences = remote.userGamePreferences || {};
+      this.data.carpoolProfiles = remote.carpoolProfiles || {};
+      this.data.carpoolMatches = remote.carpoolMatches || [];
+      this.data.gameMatches = remote.gameMatches || [];
+      if (this.data.isLoggedIn && this.data.currentUserId) {
+        const stillExists = this.data.users.some(u => u.id === this.data.currentUserId);
+        if (!stillExists) {
+          this.data.isLoggedIn = false;
+          this.data.currentUserId = null;
+          this._saveSession();
+        }
+      }
+      if (!this.data.gameMatches.length) {
+        await this.autoGenerateGameMatches();
+      }
+      this.ready = true;
+      return this.data;
+    }
+
     getCurrentUser() {
       if (!this.data.isLoggedIn || !this.data.currentUserId) return null;
       return this.data.users.find(u => u.id === this.data.currentUserId) || null;
     }
-    setCurrentUser(userId) { this.data.currentUserId = userId; this.data.isLoggedIn = true; this.save(); }
-    
-    login(name, password) {
-      const user = this.data.users.find(u => u.name.trim().toLowerCase() === name.trim().toLowerCase() && u.password === password);
-      if (user) { this.data.currentUserId = user.id; this.data.isLoggedIn = true; this.save(); return { success: true, user }; }
+
+    async login(name, password) {
+      const httpRes = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, password })
+      });
+      let res = null;
+      try { res = await httpRes.json(); } catch (_) { res = null; }
+      if (httpRes.ok && res && res.success && res.user) {
+        const idx = this.data.users.findIndex(u => u.id === res.user.id);
+        if (idx === -1) this.data.users.push(res.user);
+        else this.data.users[idx] = res.user;
+        this.data.currentUserId = res.user.id;
+        this.data.isLoggedIn = true;
+        this._saveSession();
+        return { success: true, user: res.user };
+      }
       return { success: false };
     }
+
     logout() {
       this.data.isLoggedIn = false;
       this.data.currentUserId = null;
-      this.save();
+      this._saveSession();
     }
+
     getUsers() { return this.data.users; }
-    addUser(userObj) {
-      const newUser = { id: 'u_' + Date.now().toString(36), name: userObj.name || 'New User', password: userObj.password || '123456', role: 'user', permissions: userObj.permissions || ['B'], avatar: userObj.avatar || '👤', phone: userObj.phone || '+1 (403) 000-0000' };
-      this.data.users.push(newUser); this.save(); return newUser;
+
+    async addUser(userObj) {
+      const res = await api('users', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: userObj.name || 'New User',
+          password: userObj.password || '123456',
+          permissions: userObj.permissions || ['B'],
+          avatar: userObj.avatar || '👤',
+          phone: userObj.phone || '+1 (403) 000-0000'
+        })
+      });
+      if (res.user) this.data.users.push(res.user);
+      return res.user;
     }
-    updateUser(updated) {
+
+    async updateUser(updated) {
+      const res = await api('users/' + updated.id, {
+        method: 'PUT',
+        body: JSON.stringify(updated)
+      });
       const idx = this.data.users.findIndex(u => u.id === updated.id);
-      if (idx !== -1) { this.data.users[idx] = { ...this.data.users[idx], ...updated }; this.save(); }
+      if (idx !== -1 && res.user) this.data.users[idx] = res.user;
     }
-    deleteUser(userId) { if (userId === 'u1') return; this.data.users = this.data.users.filter(u => u.id !== userId); this.save(); }
+
+    async deleteUser(userId) {
+      if (userId === 'u1') return;
+      await api('users/' + userId, { method: 'DELETE' });
+      this.data.users = this.data.users.filter(u => u.id !== userId);
+    }
+
     getGames() { return this.data.games; }
-    addGame(gameObj) {
-      const newGame = { id: 'g_' + Date.now().toString(36), name: gameObj.name, icon: gameObj.icon || '🎯', color: gameObj.color || '#6557ff' };
-      this.data.games.push(newGame); this.save(); this.autoGenerateGameMatches(); return newGame;
+
+    async addGame(gameObj) {
+      const res = await api('games', {
+        method: 'POST',
+        body: JSON.stringify(gameObj)
+      });
+      if (res.game) this.data.games.push(res.game);
+      await this.autoGenerateGameMatches();
+      return res.game;
     }
-    deleteGame(gameId) { this.data.games = this.data.games.filter(g => g.id !== gameId); this.save(); this.autoGenerateGameMatches(); }
-    getUserGamePref(userId) { return this.data.userGamePreferences[userId] || { slots: [], gameIds: [] }; }
-    saveUserGamePref(userId, slots, gameIds) { this.data.userGamePreferences[userId] = { slots, gameIds }; this.save(); this.autoGenerateGameMatches(); }
-    
-    autoGenerateGameMatches() {
+
+    async deleteGame(gameId) {
+      await api('games/' + gameId, { method: 'DELETE' });
+      this.data.games = this.data.games.filter(g => g.id !== gameId);
+      await this.autoGenerateGameMatches();
+    }
+
+    getUserGamePref(userId) {
+      return this.data.userGamePreferences[userId] || { slots: [], gameIds: [] };
+    }
+
+    async saveUserGamePref(userId, slots, gameIds) {
+      this.data.userGamePreferences[userId] = { slots, gameIds };
+      await api('preferences/' + userId, {
+        method: 'PUT',
+        body: JSON.stringify({ slots, gameIds })
+      });
+      await this.autoGenerateGameMatches();
+    }
+
+    async autoGenerateGameMatches() {
       const dayGameMap = {};
       Object.entries(this.data.userGamePreferences).forEach(([userId, pref]) => {
         (pref.slots || []).forEach(slotStr => {
@@ -335,7 +409,6 @@
       });
 
       const newMatches = [];
-
       Object.entries(dayGameMap).forEach(([mapKey, userTimeSets]) => {
         const userIds = Object.keys(userTimeSets);
         if (userIds.length < 2) return;
@@ -344,7 +417,6 @@
         for (let i = 0; i < userIds.length; i++) {
           for (let j = i + 1; j < userIds.length; j++) {
             const uA = userIds[i];
-            const uB = userIds[j];
             const matchedUserGroup = userIds.filter(u => Array.from(userTimeSets[uA]).some(t => userTimeSets[u].has(t)));
             if (matchedUserGroup.length < 2) continue;
 
@@ -368,7 +440,8 @@
               const startT = block[0];
               const endT = add30Mins(block[block.length - 1]);
               const durationMins = block.length * 30;
-              const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${matchedUserGroup.sort().join('_')}`;
+              const sortedGroup = [...matchedUserGroup].sort();
+              const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${sortedGroup.join('_')}`;
               const existing = (this.data.gameMatches || []).find(m => m.matchSlotKey === matchSlotKey);
               const confirmedUserIds = existing ? existing.confirmedUserIds.filter(id => matchedUserGroup.includes(id)) : [];
 
@@ -398,35 +471,68 @@
         }
       });
       this.data.gameMatches = uniqueMatches;
-      this.save();
+      await api('game-matches', {
+        method: 'PUT',
+        body: JSON.stringify({ matches: uniqueMatches })
+      });
     }
 
-    confirmGameMatch(matchId, userId) {
+    async confirmGameMatch(matchId, userId) {
       const match = (this.data.gameMatches || []).find(m => m.id === matchId);
       if (match && match.userIds.includes(userId)) {
         if (!match.confirmedUserIds.includes(userId)) match.confirmedUserIds.push(userId);
         if (match.confirmedUserIds.length >= match.userIds.length) match.status = 'confirmed';
-        this.save();
+        await api('game-matches/' + matchId, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            confirmedUserIds: match.confirmedUserIds,
+            status: match.status
+          })
+        });
       }
     }
-    optOutGameMatch(matchId, userId) {
+
+    async optOutGameMatch(matchId, userId) {
       const match = (this.data.gameMatches || []).find(m => m.id === matchId);
-      if (match) {
-        match.userIds = match.userIds.filter(id => id !== userId);
-        match.confirmedUserIds = match.confirmedUserIds.filter(id => id !== userId);
-        if (match.userIds.length < 2) this.data.gameMatches = this.data.gameMatches.filter(m => m.id !== matchId);
-        else if (match.confirmedUserIds.length >= match.userIds.length) match.status = 'confirmed';
-        this.save();
+      if (!match) return;
+      match.userIds = match.userIds.filter(id => id !== userId);
+      match.confirmedUserIds = match.confirmedUserIds.filter(id => id !== userId);
+      if (match.userIds.length < 2) {
+        this.data.gameMatches = this.data.gameMatches.filter(m => m.id !== matchId);
+        await api('game-matches/' + matchId, {
+          method: 'PATCH',
+          body: JSON.stringify({ delete: true })
+        });
+      } else {
+        if (match.confirmedUserIds.length >= match.userIds.length) match.status = 'confirmed';
+        await api('game-matches/' + matchId, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            userIds: match.userIds,
+            confirmedUserIds: match.confirmedUserIds,
+            status: match.status
+          })
+        });
       }
     }
+
     getGameMatches() { return this.data.gameMatches || []; }
+
     getCarpoolProfile(userId) {
       return this.data.carpoolProfiles[userId] || {
         lat: 51.0447, lng: -114.0719, addressName: 'Downtown Calgary, AB',
         hasCar: false, workTime: '08:30', homeTime: '18:00', workStatus: ['seeking'], homeStatus: ['seeking']
       };
     }
-    saveCarpoolProfile(userId, profile) { this.data.carpoolProfiles[userId] = { ...profile }; this.save(); }
+
+    async saveCarpoolProfile(userId, profile) {
+      this.data.carpoolProfiles[userId] = { ...profile };
+      await api('carpool-profiles/' + userId, {
+        method: 'PUT',
+        body: JSON.stringify(profile)
+      });
+    }
+
     calcDistanceKm(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -434,6 +540,7 @@
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return Math.round((R * c) * 10) / 10;
     }
+
     getCarpoolCandidates(currentUserId) {
       const myProfile = this.getCarpoolProfile(currentUserId);
       const matches = this.data.carpoolMatches || [];
@@ -459,21 +566,34 @@
       candidates.sort((a, b) => a.distanceKm - b.distanceKm);
       return candidates;
     }
-    requestCarpool(requesterId, targetUserId) {
+
+    async requestCarpool(requesterId, targetUserId) {
       const reqProfile = this.getCarpoolProfile(requesterId);
       const driverId = reqProfile.hasCar ? requesterId : targetUserId;
       const riderId = reqProfile.hasCar ? targetUserId : requesterId;
-      const newMatch = { id: 'cp_' + Date.now().toString(36), driverId, riderId, requesterId, status: 'pending', createdAt: new Date().toISOString() };
+      const res = await api('carpool-matches', {
+        method: 'POST',
+        body: JSON.stringify({ driverId, riderId, requesterId, status: 'pending' })
+      });
       if (!this.data.carpoolMatches) this.data.carpoolMatches = [];
-      this.data.carpoolMatches.push(newMatch); this.save(); return newMatch;
+      if (res.match) this.data.carpoolMatches.push(res.match);
+      return res.match;
     }
-    acceptCarpool(matchId) {
+
+    async acceptCarpool(matchId) {
       const match = (this.data.carpoolMatches || []).find(m => m.id === matchId);
-      if (match) { match.status = 'accepted'; this.save(); }
+      if (match) {
+        match.status = 'accepted';
+        await api('carpool-matches/' + matchId, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'accepted' })
+        });
+      }
     }
-    rejectCarpool(matchId) {
+
+    async rejectCarpool(matchId) {
       this.data.carpoolMatches = (this.data.carpoolMatches || []).filter(m => m.id !== matchId);
-      this.save();
+      await api('carpool-matches/' + matchId, { method: 'DELETE' });
     }
   }
 
@@ -506,11 +626,11 @@
         <form id="loginForm">
           <div class="form-group">
             <label>${t('usernameLabel')}</label>
-            <input type="text" id="loginName" class="form-input" value="" required placeholder="e.g. yqcw / Ghai / CJ">
+            <input type="text" id="loginName" class="form-input" value="" required placeholder="${t('loginNamePlaceholder')}">
           </div>
           <div class="form-group">
             <label>${t('passwordLabel')}</label>
-            <input type="password" id="loginPass" class="form-input" value="" required placeholder="Password">
+            <input type="password" id="loginPass" class="form-input" value="" required placeholder="${t('passwordLabel')}">
           </div>
           <div id="loginError" style="color:var(--danger);font-size:13px;margin-bottom:14px;display:none"></div>
           <button type="submit" class="btn btn-primary" style="width:100%">${t('loginSubmit')}</button>
@@ -520,18 +640,25 @@
 
     modal.classList.add('active');
 
-    document.getElementById('loginForm').onsubmit = (e) => {
+    document.getElementById('loginForm').onsubmit = async (e) => {
       e.preventDefault();
       const name = document.getElementById('loginName').value;
       const pass = document.getElementById('loginPass').value;
-      const res = store.login(name, pass);
-      if (res.success) {
-        modal.classList.remove('active');
-        if (onLoginSuccess) onLoginSuccess();
-      } else {
-        const errEl = document.getElementById('loginError');
+      const errEl = document.getElementById('loginError');
+      errEl.style.display = 'none';
+      try {
+        const res = await store.login(name, pass);
+        if (res.success) {
+          modal.classList.remove('active');
+          if (onLoginSuccess) onLoginSuccess();
+        } else {
+          errEl.textContent = t('invalidAuth');
+          errEl.style.display = 'block';
+        }
+      } catch (err) {
         errEl.textContent = t('invalidAuth');
         errEl.style.display = 'block';
+        console.error(err);
       }
     };
   }
@@ -545,7 +672,7 @@
     modal.innerHTML = `
       <div class="glass-panel modal-box" style="width:min(100%, 820px)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <div><h2 style="font-size:22px;font-weight:800">${t('adminTitle')}</h2><p style="color:var(--text-muted);font-size:13px">Default Admin: yqcw (Full Control)</p></div>
+          <div><h2 style="font-size:22px;font-weight:800">${t('adminTitle')}</h2><p style="color:var(--text-muted);font-size:13px">Users synced from D1 database</p></div>
           <button class="btn btn-ghost btn-sm" id="closeAdminBtn">✕</button>
         </div>
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px"><button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button></div>
@@ -581,8 +708,14 @@
       };
     });
     modal.querySelectorAll('.del-user-btn').forEach(btn => {
-      btn.onclick = () => {
-        if (confirm(`Delete user ${btn.dataset.id}?`)) { store.deleteUser(btn.dataset.id); renderAdminConsole(onUpdate); if (onUpdate) onUpdate(); }
+      btn.onclick = async () => {
+        if (confirm(`Delete user ${btn.dataset.id}?`)) {
+          try {
+            await store.deleteUser(btn.dataset.id);
+            renderAdminConsole(onUpdate);
+            if (onUpdate) onUpdate();
+          } catch (err) { alert(err.message); }
+        }
       };
     });
   }
@@ -617,15 +750,17 @@
     `;
     modal.classList.add('active');
     document.getElementById('cancelEditUser').onclick = () => modal.classList.remove('active');
-    document.getElementById('userEditForm').onsubmit = (e) => {
+    document.getElementById('userEditForm').onsubmit = async (e) => {
       e.preventDefault();
       const name = document.getElementById('editName').value;
       const password = document.getElementById('editPassword').value;
       const checkedPerms = Array.from(modal.querySelectorAll('input[name="perm"]:checked')).map(el => el.value);
-      if (isEdit) store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms });
-      else store.addUser({ name, password, permissions: checkedPerms });
-      modal.classList.remove('active');
-      if (onSaved) onSaved();
+      try {
+        if (isEdit) await store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms });
+        else await store.addUser({ name, password, permissions: checkedPerms });
+        modal.classList.remove('active');
+        if (onSaved) onSaved();
+      } catch (err) { alert(err.message); }
     };
   }
 
@@ -824,7 +959,7 @@
     container.querySelector('#setThisWeekBtn').onclick = () => { activeWeek = 'this'; renderFeatureB(container); };
     container.querySelector('#setNextWeekBtn').onclick = () => { activeWeek = 'next'; renderFeatureB(container); };
     
-    container.querySelector('#applyRangeBtn').onclick = () => {
+    container.querySelector('#applyRangeBtn').onclick = async () => {
       const isWeekdays = container.querySelector('#chkWeekdays').checked;
       const isWeekends = container.querySelector('#chkWeekends').checked;
       const startT = container.querySelector('#rangeStart').value;
@@ -842,18 +977,22 @@
           }
         });
       });
-      store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
-      renderFeatureB(container);
+      try {
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        renderFeatureB(container);
+      } catch (err) { alert(err.message); }
     };
 
-    container.querySelector('#clearSlotsBtn').onclick = () => {
+    container.querySelector('#clearSlotsBtn').onclick = async () => {
       selectedSlots.clear();
-      store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
-      renderFeatureB(container);
+      try {
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        renderFeatureB(container);
+      } catch (err) { alert(err.message); }
     };
 
     container.querySelectorAll('.slot-btn').forEach(btn => {
-      btn.onclick = (e) => {
+      btn.onclick = async (e) => {
         e.preventDefault();
         const slotKey = btn.dataset.slot;
         if (selectedSlots.has(slotKey)) {
@@ -863,12 +1002,14 @@
           selectedSlots.add(slotKey);
           btn.classList.add('selected');
         }
-        store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        } catch (err) { alert(err.message); }
       };
     });
 
     container.querySelectorAll('.game-item-card').forEach(card => {
-      card.onclick = (e) => {
+      card.onclick = async (e) => {
         e.preventDefault();
         const gId = card.dataset.id;
         if (selectedGames.has(gId)) {
@@ -878,32 +1019,40 @@
           selectedGames.add(gId);
           card.classList.add('selected');
         }
-        store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        } catch (err) { alert(err.message); }
       };
     });
 
-    container.querySelector('#savePrefBtn').onclick = () => {
-      store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
-      const fb = container.querySelector('#saveFeedbackB');
-      if (fb) {
-        fb.style.display = 'inline-block';
-        setTimeout(() => { fb.style.display = 'none'; }, 2500);
-      }
+    container.querySelector('#savePrefBtn').onclick = async () => {
+      try {
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        const fb = container.querySelector('#saveFeedbackB');
+        if (fb) {
+          fb.style.display = 'inline-block';
+          setTimeout(() => { fb.style.display = 'none'; }, 2500);
+        }
+      } catch (err) { alert(err.message); }
     };
 
     container.querySelectorAll('.confirm-btn').forEach(btn => {
-      btn.onclick = () => {
-        store.confirmGameMatch(btn.dataset.id, currentUser.id);
-        activeSubTabB = 'viewB2';
-        renderFeatureB(container);
+      btn.onclick = async () => {
+        try {
+          await store.confirmGameMatch(btn.dataset.id, currentUser.id);
+          activeSubTabB = 'viewB2';
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
       };
     });
 
     container.querySelectorAll('.opt-out-btn').forEach(btn => {
-      btn.onclick = () => {
-        store.optOutGameMatch(btn.dataset.id, currentUser.id);
-        activeSubTabB = 'viewB2';
-        renderFeatureB(container);
+      btn.onclick = async () => {
+        try {
+          await store.optOutGameMatch(btn.dataset.id, currentUser.id);
+          activeSubTabB = 'viewB2';
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
       };
     });
 
@@ -943,12 +1092,22 @@
     `;
     modal.classList.add('active');
     document.getElementById('closeCatBtn').onclick = () => modal.classList.remove('active');
-    modal.querySelectorAll('.del-cat-btn').forEach(btn => { btn.onclick = () => { store.deleteGame(btn.dataset.id); renderGameCategoryModal(onSaved); }; });
-    document.getElementById('addCatForm').onsubmit = (e) => {
+    modal.querySelectorAll('.del-cat-btn').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await store.deleteGame(btn.dataset.id);
+          renderGameCategoryModal(onSaved);
+          if (onSaved) onSaved();
+        } catch (err) { alert(err.message); }
+      };
+    });
+    document.getElementById('addCatForm').onsubmit = async (e) => {
       e.preventDefault();
-      store.addGame({ name: document.getElementById('catName').value, icon: document.getElementById('catIcon').value });
-      renderGameCategoryModal(onSaved);
-      if (onSaved) onSaved();
+      try {
+        await store.addGame({ name: document.getElementById('catName').value, icon: document.getElementById('catIcon').value });
+        renderGameCategoryModal(onSaved);
+        if (onSaved) onSaved();
+      } catch (err) { alert(err.message); }
     };
   }
 
@@ -1128,31 +1287,54 @@
       initGooglePlacesAutocomplete();
     };
 
-    container.querySelectorAll('.req-cp-btn').forEach(btn => { btn.onclick = () => { store.requestCarpool(currentUser.id, btn.dataset.target); renderFeatureC(container); }; });
-    container.querySelectorAll('.accept-cp-btn').forEach(btn => { btn.onclick = () => { store.acceptCarpool(btn.dataset.id); renderFeatureC(container); }; });
-    container.querySelectorAll('.reject-cp-btn').forEach(btn => { btn.onclick = () => { store.rejectCarpool(btn.dataset.id); renderFeatureC(container); }; });
+    container.querySelectorAll('.req-cp-btn').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await store.requestCarpool(currentUser.id, btn.dataset.target);
+          renderFeatureC(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
+    container.querySelectorAll('.accept-cp-btn').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await store.acceptCarpool(btn.dataset.id);
+          renderFeatureC(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
+    container.querySelectorAll('.reject-cp-btn').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await store.rejectCarpool(btn.dataset.id);
+          renderFeatureC(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
 
-    container.querySelector('#carpoolProfileForm').onsubmit = (e) => {
+    container.querySelector('#carpoolProfileForm').onsubmit = async (e) => {
       e.preventDefault();
       const selectedWorkStat = Array.from(container.querySelectorAll('input[name="workStat"]:checked')).map(el => el.value);
       const selectedHomeStat = Array.from(container.querySelectorAll('input[name="homeStat"]:checked')).map(el => el.value);
 
-      store.saveCarpoolProfile(currentUser.id, {
-        hasCar: document.getElementById('cpHasCar').value === 'true',
-        workStatus: selectedWorkStat,
-        homeStatus: selectedHomeStat,
-        workTime: document.getElementById('cpWorkTime').value,
-        homeTime: document.getElementById('cpHomeTime').value,
-        addressName: document.getElementById('cpAddressName').value,
-        lat: parseFloat(document.getElementById('cpLat').value),
-        lng: parseFloat(document.getElementById('cpLng').value)
-      });
+      try {
+        await store.saveCarpoolProfile(currentUser.id, {
+          hasCar: document.getElementById('cpHasCar').value === 'true',
+          workStatus: selectedWorkStat,
+          homeStatus: selectedHomeStat,
+          workTime: document.getElementById('cpWorkTime').value,
+          homeTime: document.getElementById('cpHomeTime').value,
+          addressName: document.getElementById('cpAddressName').value,
+          lat: parseFloat(document.getElementById('cpLat').value),
+          lng: parseFloat(document.getElementById('cpLng').value)
+        });
 
-      const fb = container.querySelector('#saveFeedbackC');
-      if (fb) {
-        fb.style.display = 'inline-block';
-        setTimeout(() => { fb.style.display = 'none'; }, 2500);
-      }
+        const fb = container.querySelector('#saveFeedbackC');
+        if (fb) {
+          fb.style.display = 'inline-block';
+          setTimeout(() => { fb.style.display = 'none'; }, 2500);
+        }
+      } catch (err) { alert(err.message); }
     };
 
     if (activeSubTabC === 'viewC2') {
@@ -1235,10 +1417,43 @@
   // --------------------------------------------------------------------------
   let currentRoute = 'home';
 
-  function initApp() {
+  async function initApp() {
+    const navEl = document.getElementById('mainNavbar');
+    const contentEl = document.getElementById('appContent');
+    if (navEl) {
+      navEl.innerHTML = `
+        <a class="nav-brand">
+          <div class="brand-icon">⚡</div>
+          <span class="brand-title">${t('appName')}</span>
+        </a>
+      `;
+    }
+    if (contentEl) {
+      contentEl.innerHTML = `<div class="glass-panel" style="padding:24px;text-align:center;color:var(--text-muted)">Loading from D1…</div>`;
+    }
+
+    try {
+      await store.hydrate();
+    } catch (err) {
+      console.error(err);
+      if (contentEl) {
+        contentEl.innerHTML = `
+          <div class="glass-panel" style="padding:24px">
+            <h2 style="font-size:20px;font-weight:800;margin-bottom:8px">Database connection failed</h2>
+            <p style="color:var(--text-muted);font-size:14px;margin-bottom:12px">${err.message}</p>
+            <p style="color:var(--text-muted);font-size:13px">
+              Confirm Cloudflare Pages binding Variable name is <code>DB</code>, and that <code>schema.sql</code> has been executed on D1.
+            </p>
+          </div>
+        `;
+      }
+      return;
+    }
+
     const currentUser = store.getCurrentUser();
     if (!currentUser) {
       renderNavbar();
+      if (contentEl) contentEl.innerHTML = '';
       renderAuthModal(() => {
         renderNavbar();
         renderRoute();

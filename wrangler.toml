@@ -1,0 +1,10 @@
+# Cloudflare Pages + D1
+# Dashboard binding Variable name must be: DB
+name = "round"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "."
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pairfast"
+database_id = "b123a88e-4ea9-43c8-8960-3d83241c28de"
