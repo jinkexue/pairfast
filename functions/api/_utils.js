@@ -50,7 +50,8 @@ export function mapUser(row) {
     role: row.role,
     permissions: parseJsonField(row.permissions, ['B']),
     avatar: row.avatar || '👤',
-    phone: row.phone || ''
+    phone: row.phone || '',
+    lastLogin: row.last_login || row.lastLogin || null
   };
 }
 
@@ -162,6 +163,27 @@ export async function ensureSessionsTable(db) {
       created_at INTEGER NOT NULL
     )
   `).run();
+}
+
+export async function ensureUsersTableSchema(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      permissions TEXT NOT NULL DEFAULT '["B"]',
+      avatar TEXT,
+      phone TEXT,
+      last_login TEXT
+    )
+  `).run();
+
+  try {
+    await db.prepare('ALTER TABLE users ADD COLUMN last_login TEXT').run();
+  } catch (_) {
+    // Column already exists.
+  }
 }
 
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;

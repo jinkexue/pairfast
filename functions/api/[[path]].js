@@ -11,6 +11,7 @@ import {
   loadBootstrap,
   ensureGameMatchesTable,
   ensureFeedbackTable,
+  ensureUsersTableSchema,
   createSession,
   getAuthUser,
   recomputeGameMatches
@@ -52,13 +53,20 @@ export async function onRequest(context) {
       if (!body || !body.name || !body.password) {
         return json({ success: false, error: 'Missing credentials' }, 400);
       }
+      await ensureUsersTableSchema(db);
       const row = await db
         .prepare('SELECT * FROM users WHERE lower(name) = lower(?) AND password = ?')
         .bind(String(body.name).trim(), String(body.password))
         .first();
       if (!row) return json({ success: false }, 401);
+      const timestamp = new Date().toISOString();
+      await db
+        .prepare('UPDATE users SET last_login = ? WHERE id = ?')
+        .bind(timestamp, row.id)
+        .run();
       const token = await createSession(db, row.id);
-      return json({ success: true, user: mapUser(row), token });
+      const updatedRow = await db.prepare('SELECT * FROM users WHERE id = ?').bind(row.id).first();
+      return json({ success: true, user: mapUser(updatedRow), token });
     }
 
     // /api/users

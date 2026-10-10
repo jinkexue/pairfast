@@ -5,5 +5,6 @@ CREATE TABLE users (
   role TEXT NOT NULL DEFAULT 'user',
   permissions TEXT NOT NULL DEFAULT '["B"]',
   avatar TEXT,
-  phone TEXT
+  phone TEXT,
+  last_login TEXT
 );

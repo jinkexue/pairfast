@@ -31,6 +31,7 @@
       colName: "Username (name)",
       colRole: "Role",
       colPerms: "Module Permissions (A/B/C)",
+      colLastLogin: "Last Login",
       colActions: "Actions",
       editPerms: "Edit Permissions",
       deleteUser: "Delete User",
@@ -144,6 +145,7 @@
       colName: "用户名 (name)",
       colRole: "角色",
       colPerms: "可进入系统选项 (A/B/C)",
+      colLastLogin: "上次登录时间",
       colActions: "操作",
       editPerms: "编辑权限",
       deleteUser: "删除用户",
@@ -416,6 +418,12 @@
       if (idx !== -1 && res.user) this.data.users[idx] = res.user;
     }
 
+    async refreshGameMatches() {
+      const remote = await api('bootstrap');
+      this.data.gameMatches = remote.gameMatches || [];
+      return this.data.gameMatches;
+    }
+
     async deleteUser(userId) {
       if (userId === 'u1') return;
       await api('users/' + userId, { method: 'DELETE' });
@@ -580,6 +588,7 @@
             status: match.status
           })
         });
+        await this.refreshGameMatches();
       }
     }
 
@@ -605,6 +614,8 @@
           })
         });
       }
+
+      await this.refreshGameMatches();
 
       const pref = this.getUserGamePref(userId);
       const currentSlots = new Set(normalizeSlotList(pref.slots || []));
@@ -635,6 +646,7 @@
           status: match.status
         })
       });
+      await this.refreshGameMatches();
 
       const pref = this.getUserGamePref(userId);
       const currentSlots = new Set(normalizeSlotList(pref.slots || []));
@@ -808,6 +820,12 @@
     }
     const users = store.getUsers();
     const feedback = store.getFeedback();
+    const formatLastLogin = (value) => {
+      if (!value) return lang === 'zh' ? '暂无记录' : 'No record';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return value;
+      return dt.toLocaleString(currentLang === 'zh' ? 'zh-CN' : 'en-US');
+    };
     modal.innerHTML = `
       <div class="glass-panel modal-box" style="width:min(100%, 940px)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -818,7 +836,7 @@
         <div style="overflow-x:auto;margin-bottom:18px">
           <table class="data-table">
             <thead>
-              <tr><th>${t('colName')}</th><th>${t('colRole')}</th><th>${t('colPerms')}</th><th>${t('colActions')}</th></tr>
+              <tr><th>${t('colName')}</th><th>${t('colRole')}</th><th>${t('colPerms')}</th><th>${t('colLastLogin')}</th><th>${t('colActions')}</th></tr>
             </thead>
             <tbody>
               ${users.map(u => `
@@ -826,6 +844,7 @@
                   <td><div style="display:flex;align-items:center;gap:8px"><span>${u.avatar || '👤'}</span><strong style="color:var(--text-main)">${u.name}</strong></div></td>
                   <td><span class="tag-pill" style="${u.role==='admin'?'color:var(--secondary);border-color:var(--secondary)':''}">${u.role}</span></td>
                   <td><div style="display:flex;gap:4px">${['A', 'B', 'C'].map(p => `<span class="tag-pill" style="${u.permissions.includes(p)?'background:var(--primary-light);color:#a5b4fc;border-color:var(--primary)':''}">Option ${p}</span>`).join('')}</div></td>
+                  <td style="font-size:12px;color:var(--text-muted)">${formatLastLogin(u.lastLogin)}</td>
                   <td>
                     <button class="btn btn-ghost btn-sm edit-user-btn" data-id="${u.id}">${t('edit')}</button>
                     ${u.id !== 'u1' ? `<button class="btn btn-danger btn-sm del-user-btn" data-id="${u.id}">${t('delete')}</button>` : ''}
@@ -1220,6 +1239,7 @@
     const isConfirmed = m.status === 'confirmed';
     const allUsers = store.getUsers();
     const memberCount = (m.userIds || []).length;
+    const confirmedCount = (m.confirmedUserIds || []).length;
     return `
       <div class="match-card ${isConfirmed ? 'confirmed' : ''}" style="padding:16px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
@@ -1238,11 +1258,13 @@
           <span>⏰ ${m.startT} - ${m.endT}</span>
           <span style="color:var(--text-muted)">•</span>
           <span>${memberCount} ${lang === 'zh' ? '成员' : 'members'}</span>
+          <span style="color:${confirmedCount === memberCount ? 'var(--success)' : 'var(--text-muted)'}">• ✓ ${confirmedCount}/${memberCount}</span>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           ${(m.userIds || []).slice(0, 4).map(uId => {
             const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
-            return `<span style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);font-size:11px;font-weight:700;color:var(--text-main)">${u.avatar} ${u.name}</span>`;
+            const hasConf = (m.confirmedUserIds || []).includes(uId);
+            return `<span style="padding:5px 10px;border-radius:999px;background:${hasConf ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)'};border:1px solid ${hasConf ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.12)'};font-size:11px;font-weight:700;color:var(--text-main)">${u.avatar} ${u.name}${hasConf ? ' ✓' : ''}</span>`;
           }).join('')}
           ${(m.userIds || []).length > 4 ? `<span style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);font-size:11px;font-weight:700;color:var(--text-main)">+${(m.userIds || []).length - 4}</span>` : ''}
         </div>
