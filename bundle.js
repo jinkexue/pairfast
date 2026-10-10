@@ -1250,14 +1250,14 @@
                 <button class="btn btn-ghost btn-sm" id="applyCalRangeBtn">${t('confirm')}</button>
               </div>
             </div>
-            <div class="calendar-toolbar-row">
+                  <div class="calendar-toolbar-row">
               <span style="font-size:12px;color:var(--text-muted);font-weight:700">${t('quickPresets')}</span>
               <label class="perm-checkbox" style="padding:4px 10px;font-size:12px"><input type="checkbox" id="chkWeekdays"> <span>${t('presetWeekdays')}</span></label>
               <label class="perm-checkbox" style="padding:4px 10px;font-size:12px"><input type="checkbox" id="chkWeekends"> <span>${t('presetWeekends')}</span></label>
               <span style="font-size:12px;color:var(--text-muted)">${t('startTimeLabel')}:</span>
-              <input type="time" id="rangeStart" class="form-input" style="width:110px;padding:6px 10px" value="17:00">
+              <input type="time" id="rangeStart" class="form-input" style="width:110px;padding:6px 10px" value="17:00" step="1800">
               <span style="font-size:12px;color:var(--text-muted)">${t('endTimeLabel')}:</span>
-              <input type="time" id="rangeEnd" class="form-input" style="width:110px;padding:6px 10px" value="19:00">
+              <input type="time" id="rangeEnd" class="form-input" style="width:110px;padding:6px 10px" value="18:00" step="1800">
               <button class="btn btn-secondary btn-sm" id="applyRangeBtn">${t('applyTimeRangeBtn')}</button>
               <button class="btn btn-danger btn-sm" id="clearSlotsBtn">${t('clearSlots')}</button>
             </div>
@@ -1389,6 +1389,11 @@
       const startT = container.querySelector('#rangeStart').value;
       const endT = container.querySelector('#rangeEnd').value;
 
+      if (!startT || !endT || startT >= endT) {
+        alert('Please choose a valid 24-hour time range where start time is earlier than end time.');
+        return;
+      }
+
       const targetDows = new Set();
       if (isWeekdays) [1, 2, 3, 4, 5].forEach(d => targetDows.add(d));
       if (isWeekends) { targetDows.add(6); targetDows.add(0); }
@@ -1455,6 +1460,10 @@
     });
 
     container.querySelector('#savePrefBtn').onclick = async () => {
+      if (!selectedGames || selectedGames.size === 0) {
+        alert('Please select at least one activity category before saving your availability.');
+        return;
+      }
       try {
         await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
         const fb = container.querySelector('#saveFeedbackB');
@@ -1879,18 +1888,8 @@
       return;
     }
 
-    const currentUser = store.getCurrentUser();
-    if (!currentUser) {
-      renderNavbar();
-      if (contentEl) contentEl.innerHTML = '';
-      renderAuthModal(() => {
-        renderNavbar();
-        renderRoute();
-      });
-    } else {
-      renderNavbar();
-      renderRoute();
-    }
+    renderNavbar();
+    renderRoute();
   }
 
   function renderNavbar() {
@@ -1904,7 +1903,17 @@
           <div class="brand-icon">⚡</div>
           <span class="brand-title">${t('appName')}</span>
         </a>
+        <div class="nav-user-area">
+          <button class="btn btn-secondary btn-sm" id="loginBtn">🔐 ${t('loginBtn')}</button>
+        </div>
       `;
+      const loginBtn = document.getElementById('loginBtn');
+      if (loginBtn) {
+        loginBtn.onclick = () => renderAuthModal(() => {
+          renderNavbar();
+          renderRoute();
+        });
+      }
       renderFeedbackFab();
       return;
     }
@@ -1976,9 +1985,9 @@
     const container = document.getElementById('appContent');
     if (!container) return;
     const currentUser = store.getCurrentUser();
-    if (!currentUser) {
-      container.innerHTML = '';
-      return;
+
+    if (!currentUser && currentRoute !== 'home') {
+      currentRoute = 'home';
     }
 
     if (currentRoute === 'home') renderHomePortal(container);
@@ -1989,65 +1998,86 @@
 
   function renderHomePortal(container) {
     const currentUser = store.getCurrentUser();
-    if (!currentUser) return;
-
-    const perms = currentUser.permissions || [];
+    const isGuest = !currentUser;
+    const perms = currentUser ? (currentUser.permissions || []) : ['A', 'B', 'C'];
     const lang = getLang();
+
+    const moduleCards = [
+      {
+        key: 'A',
+        route: 'featA',
+        icon: '⚡',
+        title: t('featATitle'),
+        desc: t('featADesc'),
+        button: t('enterFeatA'),
+        guide: isGuest
+          ? 'Find your vibe. Match your time.'
+          : 'Match people by vibe, timing, and preference.'
+      },
+      {
+        key: 'B',
+        route: 'featB',
+        icon: '🎮',
+        title: t('featBTitle'),
+        desc: t('featBDesc'),
+        button: t('enterFeatB'),
+        guide: isGuest
+          ? 'Pick your slots. Let the crew find you.'
+          : 'Set your free blocks and let the app build your next game crew.'
+      },
+      {
+        key: 'C',
+        route: 'featC',
+        icon: '🚗',
+        title: t('featCTitle'),
+        desc: t('featCDesc'),
+        button: t('enterFeatC'),
+        guide: isGuest
+          ? 'Plan the ride. Share the trip.'
+          : 'Set your commute and match with the right travel crew.'
+      }
+    ];
 
     container.innerHTML = `
       <div style="margin-bottom:24px">
         <h2 style="font-size:24px;font-weight:800;letter-spacing:-0.02em">
-          ${lang === 'zh' ? '系统功能模块 (System Modules)' : 'Available System Modules'}
+          ${lang === 'zh' ? '🏠 首页' : '🏠 Home'}
         </h2>
         <p style="color:var(--text-muted);font-size:14px;margin-top:4px">
-          ${lang === 'zh' ? `欢迎，${currentUser.name}！请选择下方为您解锁的功能进入：` : `Welcome, ${currentUser.name}! Launch unlocked modules below:`}
+          ${isGuest
+            ? (lang === 'zh' ? '看看功能，登录后就能轻松组队和出行。' : 'Explore the tools, then jump in when you are ready.')
+            : (lang === 'zh' ? `欢迎，${currentUser.name}！今天想玩什么？` : `Welcome, ${currentUser.name}! What are we doing today?`)}
         </p>
       </div>
 
       <div class="feature-grid">
-        ${perms.includes('A') ? `
+        ${moduleCards.filter(card => isGuest || perms.includes(card.key)).map(card => `
           <div class="glass-panel feature-card">
             <div class="card-top">
-              <div class="card-header-icon" style="background:var(--primary-light);color:var(--primary)">⚡</div>
-              <div class="card-title">${t('featATitle')}</div>
-              <p class="card-desc">${t('featADesc')}</p>
+              <div class="card-header-icon" style="background:${card.key === 'A' ? 'var(--primary-light)' : card.key === 'B' ? 'var(--secondary-light)' : 'rgba(249,115,22,0.15)'};color:${card.key === 'A' ? 'var(--primary)' : card.key === 'B' ? 'var(--secondary)' : 'var(--accent-orange)'}">${card.icon}</div>
+              <div class="card-title">${card.title}</div>
+              <p class="card-desc">${card.desc}</p>
+              <p style="margin-top:12px;color:var(--text-muted);font-size:12px;line-height:1.6">${card.guide}</p>
             </div>
             <div>
-              <button class="btn btn-primary launch-card-btn" data-route="featA" style="width:100%">${t('enterFeatA')}</button>
+              <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">${isGuest ? 'View Guide' : card.button}</button>
             </div>
           </div>
-        ` : ''}
-
-        ${perms.includes('B') ? `
-          <div class="glass-panel feature-card">
-            <div class="card-top">
-              <div class="card-header-icon" style="background:var(--secondary-light);color:var(--secondary)">🎮</div>
-              <div class="card-title">${t('featBTitle')}</div>
-              <p class="card-desc">${t('featBDesc')}</p>
-            </div>
-            <div>
-              <button class="btn btn-secondary launch-card-btn" data-route="featB" style="width:100%">${t('enterFeatB')}</button>
-            </div>
-          </div>
-        ` : ''}
-
-        ${perms.includes('C') ? `
-          <div class="glass-panel feature-card">
-            <div class="card-top">
-              <div class="card-header-icon" style="background:rgba(249,115,22,0.15);color:var(--accent-orange)">🚗</div>
-              <div class="card-title">${t('featCTitle')}</div>
-              <p class="card-desc">${t('featCDesc')}</p>
-            </div>
-            <div>
-              <button class="btn btn-orange launch-card-btn" data-route="featC" style="width:100%">${t('enterFeatC')}</button>
-            </div>
-          </div>
-        ` : ''}
+        `).join('')}
       </div>
     `;
 
     container.querySelectorAll('.launch-card-btn').forEach(btn => {
-      btn.onclick = () => navigate(btn.dataset.route);
+      btn.onclick = () => {
+        if (!currentUser) {
+          renderAuthModal(() => {
+            renderNavbar();
+            renderRoute();
+          });
+          return;
+        }
+        navigate(btn.dataset.route);
+      };
     });
   }
 

@@ -4,7 +4,9 @@
   "scripts": {
     "d1:login": "wrangler login",
     "d1:list": "wrangler d1 list",
-    "d1:reset": "wrangler d1 execute pairfast --remote --file=./schema-reset.sql",
+    "d1:check": "wrangler d1 execute pairfast --remote --command \"SELECT 'users' AS table_name, COUNT(*) AS cnt FROM users UNION ALL SELECT 'games', COUNT(*) FROM games UNION ALL SELECT 'user_preferences', COUNT(*) FROM user_preferences UNION ALL SELECT 'game_matches', COUNT(*) FROM game_matches UNION ALL SELECT 'feedback', COUNT(*) FROM feedback;\"",
+    "d1:reset": "node ./scripts/d1-reset-safe.js",
+    "d1:reset:force": "node ./scripts/d1-reset-safe.js --force",
     "d1:query": "wrangler d1 execute pairfast --remote --command"
   },
   "devDependencies": {
