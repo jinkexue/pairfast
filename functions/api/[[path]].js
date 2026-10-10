@@ -7,8 +7,13 @@ import {
   mapGame,
   mapGameMatch,
   mapCarpoolMatch,
+  mapFeedback,
   loadBootstrap,
-  ensureGameMatchesTable
+  ensureGameMatchesTable,
+  ensureFeedbackTable,
+  createSession,
+  getAuthUser,
+  recomputeGameMatches
 } from './_utils.js';
 
 function pathParts(params) {
@@ -36,7 +41,8 @@ export async function onRequest(context) {
   try {
     // GET /api/bootstrap
     if (resource === 'bootstrap' && method === 'GET') {
-      const data = await loadBootstrap(db);
+      const authUser = await getAuthUser(db, request); 
+      const data = await loadBootstrap(db, authUser);
       return json(data);
     }
 
@@ -51,16 +57,20 @@ export async function onRequest(context) {
         .bind(String(body.name).trim(), String(body.password))
         .first();
       if (!row) return json({ success: false }, 401);
-      return json({ success: true, user: mapUser(row) });
+      const token = await createSession(db, row.id);
+      return json({ success: true, user: mapUser(row), token });
     }
 
     // /api/users
     if (resource === 'users') {
+      const authUser = await getAuthUser(db, request);
       if (method === 'GET') {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
         const res = await db.prepare('SELECT * FROM users ORDER BY id').all();
         return json({ users: (res.results || []).map(mapUser) });
       }
       if (method === 'POST') {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
         const body = await readJson(request);
         const newUser = {
           id: body.id || ('u_' + Date.now().toString(36)),
@@ -78,22 +88,21 @@ export async function onRequest(context) {
         return json({ user: mapUser({ ...newUser, permissions: newUser.permissions }) });
       }
       if (method === 'PUT' && id) {
+        if (!authUser || (authUser.role !== 'admin' && authUser.id !== id)) return json({ error: 'Forbidden' }, 403);
         const body = await readJson(request);
-        await db
-          .prepare('UPDATE users SET name = ?, password = ?, permissions = ?, avatar = COALESCE(?, avatar), phone = COALESCE(?, phone) WHERE id = ?')
-          .bind(
-            body.name,
-            body.password,
-            JSON.stringify(body.permissions || ['B']),
-            body.avatar ?? null,
-            body.phone ?? null,
-            id
-          )
-          .run();
+        const passwordValue = body.password && String(body.password).trim() ? String(body.password) : undefined;
+        if (passwordValue) {
+          await db.prepare('UPDATE users SET name = ?, password = ?, permissions = ?, avatar = COALESCE(?, avatar), phone = COALESCE(?, phone) WHERE id = ?')
+            .bind(body.name, passwordValue, JSON.stringify(body.permissions || ['B']), body.avatar ?? null, body.phone ?? null, id).run();
+        } else {
+          await db.prepare('UPDATE users SET name = ?, permissions = ?, avatar = COALESCE(?, avatar), phone = COALESCE(?, phone) WHERE id = ?')
+            .bind(body.name, JSON.stringify(body.permissions || ['B']), body.avatar ?? null, body.phone ?? null, id).run();
+        }
         const row = await db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first();
         return json({ user: mapUser(row) });
       }
       if (method === 'DELETE' && id) {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
         if (id === 'u1') return json({ error: 'Cannot delete primary admin' }, 403);
         await db.prepare('DELETE FROM users WHERE id = ?').bind(id).run();
         await db.prepare('DELETE FROM user_preferences WHERE user_id = ?').bind(id).run();
@@ -131,6 +140,8 @@ export async function onRequest(context) {
     // PUT /api/preferences/:userId
     if (resource === 'preferences' && id && method === 'PUT') {
       const body = await readJson(request);
+      const authUser = await getAuthUser(db, request);
+      if (!authUser || (authUser.role !== 'admin' && authUser.id !== id)) return json({ error: 'Forbidden' }, 403);
       const slots = JSON.stringify(body.slots || []);
       const gameIds = JSON.stringify(body.gameIds || []);
       await db
@@ -140,6 +151,7 @@ export async function onRequest(context) {
         `)
         .bind(id, slots, gameIds)
         .run();
+      await recomputeGameMatches(db, new Date().toISOString().slice(0, 10));
       return json({ ok: true, slots: body.slots || [], gameIds: body.gameIds || [] });
     }
 
@@ -227,6 +239,40 @@ export async function onRequest(context) {
         )
         .run();
       return json({ ok: true });
+    }
+
+    // /api/feedback
+    if (resource === 'feedback') {
+      await ensureFeedbackTable(db);
+      const authUser = await getAuthUser(db, request);
+      if (method === 'GET') {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+        const res = await db.prepare('SELECT * FROM feedback ORDER BY created_at DESC LIMIT 200').all();
+        return json({ feedback: (res.results || []).map(mapFeedback) });
+      }
+      if (method === 'POST') {
+        if (!authUser) return json({ error: 'Login required' }, 401);
+        const body = await readJson(request);
+        const message = String((body && body.message) || '').trim();
+        if (!message) return json({ error: 'Message required' }, 400);
+        const item = {
+          id: 'fb_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          userId: (body && body.userId) || authUser.id,
+          userName: (body && body.userName) || authUser.name,
+          message,
+          createdAt: new Date().toISOString()
+        };
+        await db
+          .prepare('INSERT INTO feedback (id, user_id, user_name, message, created_at) VALUES (?, ?, ?, ?, ?)')
+          .bind(item.id, item.userId, item.userName, item.message, item.createdAt)
+          .run();
+        return json({ feedback: item });
+      }
+      if (method === 'DELETE' && id) {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+        await db.prepare('DELETE FROM feedback WHERE id = ?').bind(id).run();
+        return json({ ok: true });
+      }
     }
 
     // /api/carpool-matches

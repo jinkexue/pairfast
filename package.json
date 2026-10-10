@@ -1,0 +1,13 @@
+{
+  "name": "round",
+  "private": true,
+  "scripts": {
+    "d1:login": "wrangler login",
+    "d1:list": "wrangler d1 list",
+    "d1:reset": "wrangler d1 execute pairfast --remote --file=./schema-reset.sql",
+    "d1:query": "wrangler d1 execute pairfast --remote --command"
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

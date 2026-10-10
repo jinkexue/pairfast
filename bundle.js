@@ -72,6 +72,24 @@
       catName: "Category Name (name)",
       catIcon: "Emoji Icon",
       addCategoryBtn: "Add Category",
+      dateRangeLabel: "Calendar date range",
+      dateFrom: "From",
+      dateTo: "To",
+      upcomingSessions: "Upcoming",
+      pastSessions: "Past sessions",
+      showPast: "Show past",
+      hidePast: "Hide past",
+      noUpcoming: "No upcoming pre-matched sessions yet.",
+      setAvailabilityHint: "Set overlapping dates & times in Preferences — matches appear here for 2nd confirmation.",
+      feedbackTitle: "Share feedback",
+      feedbackHint: "Tell us what to improve. Admins review submissions in the console.",
+      feedbackPlaceholder: "Your suggestion or issue…",
+      feedbackSend: "Send feedback",
+      feedbackThanks: "Thanks — feedback sent!",
+      feedbackTab: "Feedback Inbox",
+      feedbackEmpty: "No feedback yet.",
+      continuousLabel: "Overlap",
+      realDateLabel: "Date",
       c1Title: "My Carpool Profile & Location",
       c1Sub: "Set departure location with Google Places Autocomplete (Destination: 7019 8 St NE, Calgary, AB T2E 8A2).",
       destinationFixed: "Fixed Destination: 7019 8 St NE, Calgary, AB T2E 8A2",
@@ -167,6 +185,24 @@
       catName: "分类名称 (name)",
       catIcon: "Emoji 图标",
       addCategoryBtn: "新增分类",
+      dateRangeLabel: "日历日期范围",
+      dateFrom: "开始日期",
+      dateTo: "结束日期",
+      upcomingSessions: "即将到来",
+      pastSessions: "已过期活动",
+      showPast: "展开过期",
+      hidePast: "收起过期",
+      noUpcoming: "暂无即将到来的预匹配场次。",
+      setAvailabilityHint: "在偏好设置中填写相同日期与重叠时段后，预匹配会显示在此处供二次确认。",
+      feedbackTitle: "意见反馈",
+      feedbackHint: "欢迎提出改进建议，管理员可在后台查看。",
+      feedbackPlaceholder: "写下你的建议或问题…",
+      feedbackSend: "提交意见",
+      feedbackThanks: "已提交，感谢反馈！",
+      feedbackTab: "意见箱",
+      feedbackEmpty: "暂无反馈。",
+      continuousLabel: "重叠时段",
+      realDateLabel: "日期",
       c1Title: "我的拼车状态与出发位置设置 (C1)",
       c1Sub: "设置您的上下班出发点（集成 Google 地图自动补全，终点固定 7019 8 St NE, Calgary, AB T2E 8A2）。",
       destinationFixed: "固定终点：7019 8 St NE, Calgary, AB T2E 8A2",
@@ -224,8 +260,15 @@
   };
 
   async function api(path, options = {}) {
+    let authHeader = {};
+    try {
+      const session = JSON.parse(sessionStorage.getItem(SESSION_KEY) || '{}');
+      if (session && session.token) {
+        authHeader = { Authorization: 'Bearer ' + session.token };
+      }
+    } catch (_) { /* ignore */ }
     const res = await fetch('/api/' + path.replace(/^\//, ''), {
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', ...authHeader, ...(options.headers || {}) },
       ...options
     });
     let data = null;
@@ -249,7 +292,8 @@
         userGamePreferences: {},
         gameMatches: [],
         carpoolProfiles: {},
-        carpoolMatches: []
+        carpoolMatches: [],
+        feedback: []
       };
       this._loadSession();
     }
@@ -261,6 +305,7 @@
         const s = JSON.parse(raw);
         this.data.currentUserId = s.currentUserId || null;
         this.data.isLoggedIn = !!s.isLoggedIn;
+        this.data.token = s.token || null;
         if (s.lang) this.data.lang = s.lang;
       } catch (_) { /* ignore */ }
     }
@@ -269,6 +314,7 @@
       sessionStorage.setItem(SESSION_KEY, JSON.stringify({
         currentUserId: this.data.currentUserId,
         isLoggedIn: this.data.isLoggedIn,
+        token: this.data.token || null,
         lang: this.data.lang || getLang()
       }));
     }
@@ -277,10 +323,26 @@
       const remote = await api('bootstrap');
       this.data.users = remote.users || [];
       this.data.games = remote.games || [];
-      this.data.userGamePreferences = remote.userGamePreferences || {};
+      this.data.userGamePreferences = {};
+      (remote.userGamePreferences || {}).forEach ? null : null;
+      Object.entries(remote.userGamePreferences || {}).forEach(([userId, pref]) => {
+        this.data.userGamePreferences[userId] = {
+          slots: normalizeSlotList(pref && pref.slots ? pref.slots : []),
+          gameIds: Array.from(new Set((pref && pref.gameIds) || []))
+        };
+      });
       this.data.carpoolProfiles = remote.carpoolProfiles || {};
       this.data.carpoolMatches = remote.carpoolMatches || [];
       this.data.gameMatches = remote.gameMatches || [];
+      this.data.feedback = remote.feedback || [];
+      // Normalize pickleball icon client-side if DB still has ping-pong emoji
+      this.data.games = this.data.games.map(g => {
+        const n = (g.name || '').toLowerCase();
+        if (g.id === 'g1' || n.includes('pickle') || n.includes('匹克')) {
+          return { ...g, icon: g.icon === '🏓' ? 'pickle' : (g.icon || 'pickle'), color: g.color || '#ff6b00' };
+        }
+        return g;
+      });
       if (this.data.isLoggedIn && this.data.currentUserId) {
         const stillExists = this.data.users.some(u => u.id === this.data.currentUserId);
         if (!stillExists) {
@@ -289,9 +351,8 @@
           this._saveSession();
         }
       }
-      if (!this.data.gameMatches.length) {
-        await this.autoGenerateGameMatches();
-      }
+      // Always recalculate so overlap matches stay in sync with prefs
+      await this.autoGenerateGameMatches();
       this.ready = true;
       return this.data;
     }
@@ -315,8 +376,9 @@
         else this.data.users[idx] = res.user;
         this.data.currentUserId = res.user.id;
         this.data.isLoggedIn = true;
+        this.data.token = res.token || null;
         this._saveSession();
-        return { success: true, user: res.user };
+        return { success: true, user: res.user, token: res.token || null };
       }
       return { success: false };
     }
@@ -324,6 +386,7 @@
     logout() {
       this.data.isLoggedIn = false;
       this.data.currentUserId = null;
+      this.data.token = null;
       this._saveSession();
     }
 
@@ -382,99 +445,127 @@
     }
 
     async saveUserGamePref(userId, slots, gameIds) {
-      this.data.userGamePreferences[userId] = { slots, gameIds };
+      const normalizedSlots = normalizeSlotList(slots);
+      const normalizedGames = Array.from(new Set(gameIds || []));
+      this.data.userGamePreferences[userId] = { slots: normalizedSlots, gameIds: normalizedGames };
       await api('preferences/' + userId, {
         method: 'PUT',
-        body: JSON.stringify({ slots, gameIds })
+        body: JSON.stringify({ slots: normalizedSlots, gameIds: normalizedGames })
       });
       await this.autoGenerateGameMatches();
     }
 
     async autoGenerateGameMatches() {
-      const dayGameMap = {};
+      const grouped = {};
       Object.entries(this.data.userGamePreferences).forEach(([userId, pref]) => {
-        (pref.slots || []).forEach(slotStr => {
-          const parts = slotStr.split('-');
-          if (parts.length === 3) {
-            const dayKey = `${parts[0]}-${parts[1]}`;
-            const timeStr = parts[2];
-            (pref.gameIds || []).forEach(gId => {
-              const mapKey = `${dayKey}___${gId}`;
-              if (!dayGameMap[mapKey]) dayGameMap[mapKey] = {};
-              if (!dayGameMap[mapKey][userId]) dayGameMap[mapKey][userId] = new Set();
-              dayGameMap[mapKey][userId].add(timeStr);
-            });
-          }
+        const slots = normalizeSlotList(pref && pref.slots ? pref.slots : []);
+        const games = Array.from(new Set(pref && pref.gameIds ? pref.gameIds : []));
+        games.forEach(gameId => {
+          slots.forEach(slotKey => {
+            const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2})\|([0-9]{2}:[0-9]{2})$/.exec(String(slotKey));
+            if (!m) return;
+            const [, dayKey, timeStr] = m;
+            const minute = timeToMinutes(timeStr);
+            const key = `${dayKey}___${gameId}`;
+            if (!grouped[key]) grouped[key] = {};
+            if (!grouped[key][userId]) grouped[key][userId] = new Set();
+            grouped[key][userId].add(minute);
+          });
         });
       });
 
       const newMatches = [];
-      Object.entries(dayGameMap).forEach(([mapKey, userTimeSets]) => {
-        const userIds = Object.keys(userTimeSets);
+      const seen = new Set();
+      Object.entries(grouped).forEach(([mapKey, userMinuteMap]) => {
+        const userIds = Object.keys(userMinuteMap).filter(u => userMinuteMap[u] && userMinuteMap[u].size);
         if (userIds.length < 2) return;
+
         const [dayKey, gameId] = mapKey.split('___');
+        const minuteToUsers = new Map();
+        userIds.forEach(u => {
+          userMinuteMap[u].forEach(minute => {
+            if (!minuteToUsers.has(minute)) minuteToUsers.set(minute, new Set());
+            minuteToUsers.get(minute).add(u);
+          });
+        });
 
-        for (let i = 0; i < userIds.length; i++) {
-          for (let j = i + 1; j < userIds.length; j++) {
-            const uA = userIds[i];
-            const matchedUserGroup = userIds.filter(u => Array.from(userTimeSets[uA]).some(t => userTimeSets[u].has(t)));
-            if (matchedUserGroup.length < 2) continue;
+        const sharedMinutes = [...minuteToUsers.keys()].filter(minute => minuteToUsers.get(minute).size >= 2).sort((a, b) => a - b);
+        let block = [];
+        const flush = () => {
+          if (block.length < 2) { block = []; return; }
+          const memberSet = new Set();
+          block.forEach(minute => {
+            (minuteToUsers.get(minute) || []).forEach(u => memberSet.add(u));
+          });
+          const members = [...memberSet].sort();
+          if (members.length < 2) { block = []; return; }
+          const startT = minutesToTime(block[0]);
+          const endT = minutesToTime(block[block.length - 1] + 30);
+          const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${members.join('_')}`;
+          if (seen.has(matchSlotKey)) { block = []; return; }
+          seen.add(matchSlotKey);
 
-            const commonTimes = Array.from(userTimeSets[uA]).filter(tStr => matchedUserGroup.every(u => userTimeSets[u].has(tStr)));
-            if (commonTimes.length === 0) continue;
-            commonTimes.sort();
+          const existing = (this.data.gameMatches || []).find(m => m.matchSlotKey === matchSlotKey);
+          const confirmedUserIds = existing
+            ? (existing.confirmedUserIds || []).filter(u => members.includes(u))
+            : [];
 
-            const continuousBlocks = [];
-            let currentBlock = [commonTimes[0]];
-            for (let k = 1; k < commonTimes.length; k++) {
-              if (isNext30Min(currentBlock[currentBlock.length - 1], commonTimes[k])) {
-                currentBlock.push(commonTimes[k]);
-              } else {
-                continuousBlocks.push(currentBlock);
-                currentBlock = [commonTimes[k]];
-              }
-            }
-            if (currentBlock.length > 0) continuousBlocks.push(currentBlock);
+          newMatches.push({
+            id: existing ? existing.id : 'm_' + Math.random().toString(36).slice(2, 8),
+            matchSlotKey,
+            dayKey,
+            startT,
+            endT,
+            durationMins: block.length * 30,
+            gameId,
+            userIds: members,
+            confirmedUserIds,
+            status: confirmedUserIds.length >= members.length ? 'confirmed' : 'pending'
+          });
+          block = [];
+        };
 
-            continuousBlocks.forEach(block => {
-              const startT = block[0];
-              const endT = add30Mins(block[block.length - 1]);
-              const durationMins = block.length * 30;
-              const sortedGroup = [...matchedUserGroup].sort();
-              const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${sortedGroup.join('_')}`;
-              const existing = (this.data.gameMatches || []).find(m => m.matchSlotKey === matchSlotKey);
-              const confirmedUserIds = existing ? existing.confirmedUserIds.filter(id => matchedUserGroup.includes(id)) : [];
-
-              newMatches.push({
-                id: existing ? existing.id : 'm_' + Math.random().toString(36).slice(2, 8),
-                matchSlotKey,
-                dayKey,
-                startT,
-                endT,
-                durationMins,
-                gameId,
-                userIds: matchedUserGroup,
-                confirmedUserIds,
-                status: confirmedUserIds.length >= matchedUserGroup.length ? 'confirmed' : 'pending'
-              });
-            });
-          }
+        for (let i = 0; i < sharedMinutes.length; i++) {
+          const minute = sharedMinutes[i];
+          if (block.length && minute !== block[block.length - 1] + 30) flush();
+          block.push(minute);
         }
+        flush();
       });
 
-      const uniqueMatches = [];
-      const seenKeys = new Set();
-      newMatches.forEach(m => {
-        if (!seenKeys.has(m.matchSlotKey)) {
-          seenKeys.add(m.matchSlotKey);
-          uniqueMatches.push(m);
-        }
+      this.data.gameMatches = newMatches;
+      try {
+        await api('game-matches', {
+          method: 'PUT',
+          body: JSON.stringify({ matches: newMatches })
+        });
+      } catch (err) {
+        console.warn('Game match sync failed:', err);
+      }
+    }
+
+    getFeedback() { return this.data.feedback || []; }
+
+    async submitFeedback(userId, userName, message) {
+      const res = await api('feedback', {
+        method: 'POST',
+        body: JSON.stringify({ userId, userName, message })
       });
-      this.data.gameMatches = uniqueMatches;
-      await api('game-matches', {
-        method: 'PUT',
-        body: JSON.stringify({ matches: uniqueMatches })
-      });
+      if (res.feedback) {
+        this.data.feedback = [res.feedback, ...(this.data.feedback || [])];
+      }
+      return res.feedback;
+    }
+
+    async refreshFeedback() {
+      const res = await api('feedback');
+      this.data.feedback = res.feedback || [];
+      return this.data.feedback;
+    }
+
+    async deleteFeedback(id) {
+      await api('feedback/' + id, { method: 'DELETE' });
+      this.data.feedback = (this.data.feedback || []).filter(f => f.id !== id);
     }
 
     async confirmGameMatch(matchId, userId) {
@@ -669,14 +760,15 @@
       modal = document.createElement('div'); modal.id = 'adminModal'; modal.className = 'modal-overlay'; document.body.appendChild(modal);
     }
     const users = store.getUsers();
+    const feedback = store.getFeedback();
     modal.innerHTML = `
-      <div class="glass-panel modal-box" style="width:min(100%, 820px)">
+      <div class="glass-panel modal-box" style="width:min(100%, 940px)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
           <div><h2 style="font-size:22px;font-weight:800">${t('adminTitle')}</h2><p style="color:var(--text-muted);font-size:13px">Users synced from D1 database</p></div>
           <button class="btn btn-ghost btn-sm" id="closeAdminBtn">✕</button>
         </div>
         <div style="display:flex;justify-content:flex-end;margin-bottom:16px"><button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button></div>
-        <div style="overflow-x:auto">
+        <div style="overflow-x:auto;margin-bottom:18px">
           <table class="data-table">
             <thead>
               <tr><th>${t('colName')}</th><th>${t('colRole')}</th><th>${t('colPerms')}</th><th>${t('colActions')}</th></tr>
@@ -695,6 +787,21 @@
               `).join('')}
             </tbody>
           </table>
+        </div>
+
+        <div style="border-top:1px solid var(--panel-border);padding-top:18px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <h3 style="font-size:18px;font-weight:800;margin:0">${t('feedbackTab')}</h3>
+            <span class="tag-pill" style="border-color:var(--primary)">${feedback.length}</span>
+          </div>
+          ${feedback.length === 0 ? `<div class="feedback-list-item"><div class="meta">${t('feedbackEmpty')}</div></div>` : 
+            feedback.map(item => `
+              <div class="feedback-list-item">
+                <div class="meta">${item.userName || 'Anonymous'} · ${new Date(item.createdAt || Date.now()).toLocaleString()}</div>
+                <div style="margin-bottom:10px; color:var(--text-main)">${(item.message || '').replace(/</g, '&lt;')}</div>
+                <button class="btn btn-danger btn-sm delete-feedback-btn" data-id="${item.id}">${t('delete')}</button>
+              </div>
+            `).join('')}
         </div>
       </div>
     `;
@@ -718,6 +825,72 @@
         }
       };
     });
+    modal.querySelectorAll('.delete-feedback-btn').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await store.deleteFeedback(btn.dataset.id);
+          renderAdminConsole(onUpdate);
+        } catch (err) { alert(err.message); }
+      };
+    });
+  }
+
+  function renderFeedbackFab() {
+    const currentUser = store.getCurrentUser();
+    if (!currentUser) {
+      const oldFab = document.getElementById('feedbackFab');
+      const oldPanel = document.getElementById('feedbackPanel');
+      if (oldFab) oldFab.remove();
+      if (oldPanel) oldPanel.remove();
+      return;
+    }
+
+    let fab = document.getElementById('feedbackFab');
+    if (!fab) {
+      fab = document.createElement('button');
+      fab.id = 'feedbackFab';
+      fab.className = 'feedback-fab';
+      fab.type = 'button';
+      fab.textContent = '💬';
+      fab.setAttribute('aria-label', 'Open feedback');
+      document.body.appendChild(fab);
+    }
+
+    let panel = document.getElementById('feedbackPanel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'feedbackPanel';
+      panel.className = 'feedback-panel glass-panel';
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;">
+          <strong>${t('feedbackTitle')}</strong>
+          <button class="btn btn-ghost btn-sm" type="button" id="closeFeedbackBtn">✕</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px">${t('feedbackHint')}</p>
+        <textarea id="feedbackInput" class="form-input" rows="4" placeholder="${t('feedbackPlaceholder')}"></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:10px;gap:10px">
+          <button class="btn btn-primary btn-sm" type="button" id="sendFeedbackBtn">${t('feedbackSend')}</button>
+        </div>
+        <div id="feedbackSuccess" style="display:none;color:var(--success);font-size:12px;margin-top:10px">${t('feedbackThanks')}</div>
+      `;
+      document.body.appendChild(panel);
+    }
+
+    fab.onclick = () => panel.classList.toggle('open');
+    panel.querySelector('#closeFeedbackBtn').onclick = () => panel.classList.remove('open');
+    panel.querySelector('#sendFeedbackBtn').onclick = async () => {
+      const val = panel.querySelector('#feedbackInput').value.trim();
+      if (!val) return;
+      try {
+        await store.submitFeedback(currentUser.id, currentUser.name, val);
+        panel.querySelector('#feedbackInput').value = '';
+        const success = panel.querySelector('#feedbackSuccess');
+        success.style.display = 'block';
+        setTimeout(() => success.style.display = 'none', 2200);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
   }
 
   function renderUserEditModal(userObj, onSaved) {
@@ -784,9 +957,13 @@
   // 5. Feature B: Activity Teamup System
   // --------------------------------------------------------------------------
   const DAYS = [
-    { id: 'Mon', en: 'Monday', zh: '周一' }, { id: 'Tue', en: 'Tuesday', zh: '周二' },
-    { id: 'Wed', en: 'Wednesday', zh: '周三' }, { id: 'Thu', en: 'Thursday', zh: '周四' },
-    { id: 'Fri', en: 'Friday', zh: '周五' }, { id: 'Sat', en: 'Saturday', zh: '周六' }, { id: 'Sun', en: 'Sunday', zh: '周日' }
+    { id: 'Mon', en: 'Monday', zh: '周一', dow: 1 },
+    { id: 'Tue', en: 'Tuesday', zh: '周二', dow: 2 },
+    { id: 'Wed', en: 'Wednesday', zh: '周三', dow: 3 },
+    { id: 'Thu', en: 'Thursday', zh: '周四', dow: 4 },
+    { id: 'Fri', en: 'Friday', zh: '周五', dow: 5 },
+    { id: 'Sat', en: 'Saturday', zh: '周六', dow: 6 },
+    { id: 'Sun', en: 'Sunday', zh: '周日', dow: 0 }
   ];
   const TIME_SLOTS = [];
   for (let h = 12; h <= 21; h++) {
@@ -795,18 +972,250 @@
   }
   let activeWeek = 'this';
   let activeSubTabB = 'viewB1';
+  let pastHubExpanded = false;
+  let calendarRange = null;
+
+  function startOfLocalDay(d) {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  }
+
+  function toISODate(d) {
+    const x = startOfLocalDay(d);
+    const y = x.getFullYear();
+    const m = String(x.getMonth() + 1).padStart(2, '0');
+    const day = String(x.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function parseISODate(iso) {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    return startOfLocalDay(new Date(y, m - 1, d));
+  }
+
+  function getMonday(d) {
+    const x = startOfLocalDay(d);
+    const day = x.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    x.setDate(x.getDate() + diff);
+    return x;
+  }
+
+  function getWeekDayInfos(week) {
+    const monday = getMonday(new Date());
+    if (week === 'next') monday.setDate(monday.getDate() + 7);
+    return DAYS.map(day => {
+      const offset = day.dow === 0 ? 6 : day.dow - 1;
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + offset);
+      return { ...day, date, iso: toISODate(date) };
+    });
+  }
+
+  function dayKeyToDate(dayKey) {
+    if (!dayKey) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(dayKey))) return parseISODate(String(dayKey));
+    const parts = String(dayKey).split('-');
+    if (parts.length < 2) return null;
+    const [w, d] = parts;
+    const infos = getWeekDayInfos(w === 'next' ? 'next' : 'this');
+    const info = infos.find(i => i.id === d);
+    return info ? info.date : null;
+  }
+
+  function resolveWeekAndDay(date) {
+    const target = startOfLocalDay(date);
+    const iso = toISODate(target);
+    const thisWeek = getWeekDayInfos('this');
+    const nextWeek = getWeekDayInfos('next');
+    for (const info of thisWeek) {
+      if (info.iso === iso) return { week: 'this', dayId: info.id, info };
+    }
+    for (const info of nextWeek) {
+      if (info.iso === iso) return { week: 'next', dayId: info.id, info };
+    }
+    const thisMon = getMonday(new Date());
+    const nextMon = new Date(thisMon);
+    nextMon.setDate(thisMon.getDate() + 7);
+    const targetMon = getMonday(target);
+    const dThis = Math.abs(targetMon - thisMon);
+    const dNext = Math.abs(targetMon - nextMon);
+    const week = dNext < dThis ? 'next' : 'this';
+    const dayId = (DAYS.find(d => d.dow === target.getDay()) || DAYS[0]).id;
+    const info = getWeekDayInfos(week).find(i => i.id === dayId);
+    return { week, dayId, info };
+  }
+
+  function eachDateInclusive(fromIso, toIso) {
+    const dates = [];
+    if (!fromIso || !toIso) return dates;
+    let cur = parseISODate(fromIso);
+    const end = parseISODate(toIso);
+    if (cur > end) return dates;
+    while (cur <= end) {
+      dates.push(new Date(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dates;
+  }
+
+  function ensureCalendarRangeForWeek(week) {
+    const infos = getWeekDayInfos(week);
+    calendarRange = { from: infos[0].iso, to: infos[infos.length - 1].iso };
+  }
+
+  if (!calendarRange) ensureCalendarRangeForWeek(activeWeek);
+
+  function renderSportIcon(g, size) {
+    const sz = size || 24;
+    const name = ((g && g.name) || '').toLowerCase();
+    const icon = (g && g.icon) || '';
+    const isPickle = icon === 'pickle' || name.includes('pickle') || name.includes('匹克');
+    if (isPickle) {
+      const color = (g && g.color) || '#ff6b00';
+      return `<svg class="sport-icon-pickle" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <ellipse cx="9.2" cy="9" rx="6.4" ry="7.2" transform="rotate(-38 9.2 9)" fill="${color}"/>
+        <circle cx="7.1" cy="6.6" r="0.9" fill="#0b0f19" opacity="0.55"/>
+        <circle cx="9.6" cy="6.2" r="0.9" fill="#0b0f19" opacity="0.55"/>
+        <circle cx="7.8" cy="9" r="0.9" fill="#0b0f19" opacity="0.55"/>
+        <circle cx="10.3" cy="8.6" r="0.9" fill="#0b0f19" opacity="0.55"/>
+        <circle cx="8.5" cy="11.4" r="0.9" fill="#0b0f19" opacity="0.55"/>
+        <rect x="13.6" y="13.2" width="2.4" height="8.2" rx="1.2" transform="rotate(-38 14.8 17.3)" fill="${color}"/>
+        <circle cx="19.2" cy="5.6" r="2.35" fill="${color}"/>
+        <circle cx="18.55" cy="5" r="0.45" fill="#0b0f19" opacity="0.45"/>
+        <circle cx="19.7" cy="5.15" r="0.45" fill="#0b0f19" opacity="0.45"/>
+        <circle cx="19.1" cy="6.25" r="0.45" fill="#0b0f19" opacity="0.45"/>
+      </svg>`;
+    }
+    return `<span style="font-size:${sz}px;line-height:1">${icon || '🎮'}</span>`;
+  }
+
+  function matchEndDateTime(m) {
+    const date = dayKeyToDate(m.dayKey);
+    if (!date) return null;
+    const end = new Date(date);
+    const [eh, em] = String(m.endT || '00:00').split(':').map(Number);
+    end.setHours(eh || 0, em || 0, 0, 0);
+    return end;
+  }
+
+  function isMatchPast(m) {
+    const end = matchEndDateTime(m);
+    return end ? end.getTime() < Date.now() : false;
+  }
+
+  function formatMatchDateLabel(m, lang) {
+    const date = dayKeyToDate(m.dayKey);
+    if (!date) return m.dayKey || '';
+    const [w, d] = String(m.dayKey).split('-');
+    const dayObj = DAYS.find(item => item.id === d) || { en: d, zh: d };
+    const weekLabel = w === 'next' ? t('tabNextWeek') : t('tabThisWeek');
+    const dayName = lang === 'zh' ? dayObj.zh : dayObj.en;
+    return `${weekLabel} · ${dayName} · ${toISODate(date)}`;
+  }
+
+  function renderMatchCard(m, games, currentUser, lang) {
+    const gameObj = games.find(g => g.id === m.gameId) || { name: m.gameId, icon: '🎮' };
+    const allUsers = store.getUsers();
+    const isConfirmed = m.status === 'confirmed';
+    const userHasConfirmed = (m.confirmedUserIds || []).includes(currentUser.id);
+    const past = isMatchPast(m);
+    return `
+      <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${past ? 'past' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="sport-icon-wrap" style="width:48px;height:48px;background:rgba(255,255,255,0.06);border-radius:14px">${renderSportIcon(gameObj, 28)}</span>
+            <div>
+              <h4 style="font-size:18px;font-weight:800;color:#fff">${gameObj.name}</h4>
+              <div style="color:var(--text-muted);font-size:13px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px">
+                <span>📅 ${t('realDateLabel')}: ${formatMatchDateLabel(m, lang)}</span>
+                <strong style="color:var(--secondary)">⏰ ${t('continuousLabel')}: ${m.startT} - ${m.endT} (${m.durationMins} mins)</strong>
+              </div>
+            </div>
+          </div>
+          <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
+        </div>
+        <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;margin-bottom:16px">
+          <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:8px">${t('membersLabel')} (${(m.confirmedUserIds || []).length}/${(m.userIds || []).length} Confirmed)</span>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${(m.userIds || []).map(uId => {
+              const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
+              const hasConf = (m.confirmedUserIds || []).includes(uId);
+              return `
+                <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:${hasConf?'var(--success-bg)':'rgba(255,255,255,0.06)'};border:1px solid ${hasConf?'var(--success)':'rgba(255,255,255,0.1)'};font-size:13px;font-weight:600">
+                  <span>${u.avatar} ${u.name}</span>
+                  ${hasConf ? '<span style="color:var(--success)">✓</span>' : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+        ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${t('optOutSession')}</button>
+            <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
+              ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
+            </button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  function normalizeSlotKey(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}\|\d{2}:\d{2}$/.test(s)) return s;
+    const match = s.match(/^(this|next)-([A-Za-z]{3})-(\d{2}:\d{2})$/);
+    if (!match) return null;
+    const [, week, dayId, time] = match;
+    const monday = getMonday(new Date());
+    const target = new Date(monday);
+    const info = DAYS.find(d => d.id === dayId);
+    if (!info) return null;
+    const offset = info.dow === 0 ? 6 : info.dow - 1;
+    target.setDate(monday.getDate() + offset + (week === 'next' ? 7 : 0));
+    return `${toISODate(target)}|${time}`;
+  }
+
+  function slotKeyForDate(dateObj, timeSlot) {
+    return `${toISODate(dateObj)}|${timeSlot}`;
+  }
+
+  function normalizeSlotList(slots) {
+    return Array.from(new Set((slots || []).map(normalizeSlotKey).filter(Boolean)));
+  }
+
+  function timeToMinutes(timeStr) {
+    const [h, m] = String(timeStr).split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  function minutesToTime(value) {
+    const mins = Number(value) || 0;
+    const hours = Math.floor(mins / 60) % 24;
+    const minutes = mins % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
 
   function renderFeatureB(container) {
     const currentUser = store.getCurrentUser();
     if (!currentUser) return;
+
+    if (!calendarRange) ensureCalendarRangeForWeek(activeWeek);
 
     const userPref = store.getUserGamePref(currentUser.id);
     const games = store.getGames();
     const matches = store.getGameMatches();
     const lang = getLang();
 
-    let selectedSlots = new Set(userPref.slots || []);
-    let selectedGames = new Set(userPref.gameIds || []);
+    const selectedSlots = new Set(normalizeSlotList(userPref.slots || []));
+    const selectedGames = new Set(Array.from(new Set(userPref.gameIds || [])));
+
+    const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
+    const upcomingMatches = matches.filter(m => !isMatchPast(m));
+    const pastMatches = matches.filter(m => isMatchPast(m));
 
     container.innerHTML = `
       <div style="margin-bottom: 24px;">
@@ -820,26 +1229,34 @@
       </div>
       <div class="sub-tabs">
         <button class="sub-tab-btn ${activeSubTabB==='viewB1'?'active':''}" id="tabB1">${t('b1Title')}</button>
-        <button class="sub-tab-btn ${activeSubTabB==='viewB2'?'active':''}" id="tabB2">${t('b2Title')} (${matches.length})</button>
+        <button class="sub-tab-btn ${activeSubTabB==='viewB2'?'active':''}" id="tabB2">${t('b2Title')} (${upcomingMatches.length})</button>
       </div>
 
       <!-- View B1 -->
       <div id="viewB1" style="${activeSubTabB==='viewB1'?'display:block':'display:none'}">
         <div class="glass-panel" style="padding:24px;margin-bottom:32px">
           <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px">${t('b1Sub')}</p>
-          
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;margin-bottom:20px;background:rgba(0,0,0,0.2);padding:14px;border-radius:var(--radius-md)">
-            <div style="display:flex;gap:8px">
+
+          <div class="calendar-toolbar">
+            <div class="calendar-toolbar-row">
               <button class="btn btn-sm ${activeWeek==='this'?'btn-secondary':'btn-ghost'}" id="setThisWeekBtn">${t('tabThisWeek')}</button>
               <button class="btn btn-sm ${activeWeek==='next'?'btn-secondary':'btn-ghost'}" id="setNextWeekBtn">${t('tabNextWeek')}</button>
+              <span style="font-size:12px;color:var(--text-muted);font-weight:700">${t('dateRangeLabel')}</span>
+              <div class="date-range-inputs">
+                <label style="font-size:12px;color:var(--text-muted)">${t('dateFrom')}</label>
+                <input type="date" id="calFrom" class="form-input" value="${calendarRange.from}">
+                <label style="font-size:12px;color:var(--text-muted)">${t('dateTo')}</label>
+                <input type="date" id="calTo" class="form-input" value="${calendarRange.to}">
+                <button class="btn btn-ghost btn-sm" id="applyCalRangeBtn">${t('confirm')}</button>
+              </div>
             </div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div class="calendar-toolbar-row">
               <span style="font-size:12px;color:var(--text-muted);font-weight:700">${t('quickPresets')}</span>
               <label class="perm-checkbox" style="padding:4px 10px;font-size:12px"><input type="checkbox" id="chkWeekdays"> <span>${t('presetWeekdays')}</span></label>
               <label class="perm-checkbox" style="padding:4px 10px;font-size:12px"><input type="checkbox" id="chkWeekends"> <span>${t('presetWeekends')}</span></label>
-              <span style="font-size:12px;color:var(--text-muted)">Time:</span>
+              <span style="font-size:12px;color:var(--text-muted)">${t('startTimeLabel')}:</span>
               <input type="time" id="rangeStart" class="form-input" style="width:110px;padding:6px 10px" value="17:00">
-              <span style="font-size:12px;color:var(--text-muted)">to</span>
+              <span style="font-size:12px;color:var(--text-muted)">${t('endTimeLabel')}:</span>
               <input type="time" id="rangeEnd" class="form-input" style="width:110px;padding:6px 10px" value="19:00">
               <button class="btn btn-secondary btn-sm" id="applyRangeBtn">${t('applyTimeRangeBtn')}</button>
               <button class="btn btn-danger btn-sm" id="clearSlotsBtn">${t('clearSlots')}</button>
@@ -847,20 +1264,29 @@
           </div>
 
           <div style="margin-bottom:28px">
-            <label class="form-group label">${activeWeek === 'this' ? 'THIS WEEK' : 'NEXT WEEK'} AVAILABILITY MATRIX (30-MIN INTERVALS)</label>
+            <label class="form-group label">AVAILABILITY · ${calendarRange.from} → ${calendarRange.to}</label>
             <div style="display:grid;gap:14px">
-              ${DAYS.map(day => `
-                <div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:var(--radius-md);border:1px solid rgba(255,255,255,0.05)">
-                  <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#a5b4fc">📅 ${lang === 'zh' ? day.zh : day.en}</div>
-                  <div class="time-slot-grid">
-                    ${TIME_SLOTS.map(tSlot => {
-                      const slotKey = `${activeWeek}-${day.id}-${tSlot}`;
-                      const isSelected = selectedSlots.has(slotKey);
-                      return `<button class="slot-btn ${isSelected ? 'selected' : ''}" data-slot="${slotKey}">${tSlot} - ${add30Mins(tSlot)}</button>`;
-                    }).join('')}
+              ${rangeDates.length === 0 ? `<p style="color:var(--text-muted);font-size:13px">Select a valid calendar range.</p>` : rangeDates.map(dateObj => {
+                const resolved = resolveWeekAndDay(dateObj);
+                const day = DAYS.find(d => d.id === resolved.dayId) || DAYS[0];
+                const iso = toISODate(dateObj);
+                return `
+                  <div class="day-row">
+                    <div class="day-row-title">
+                      <span>📅 ${lang === 'zh' ? day.zh : day.en}</span>
+                      <span class="date-label">${iso}</span>
+                      <span style="font-size:11px;color:var(--text-muted);font-weight:600">${resolved.week === 'next' ? t('tabNextWeek') : t('tabThisWeek')}</span>
+                    </div>
+                    <div class="time-slot-grid">
+                      ${TIME_SLOTS.map(tSlot => {
+                        const slotKey = slotKeyForDate(dateObj, tSlot);
+                        const isSelected = selectedSlots.has(slotKey);
+                        return `<button class="slot-btn ${isSelected ? 'selected' : ''}" data-slot="${slotKey}">${tSlot} - ${add30Mins(tSlot)}</button>`;
+                      }).join('')}
+                    </div>
                   </div>
-                </div>
-              `).join('')}
+                `;
+              }).join('')}
             </div>
           </div>
 
@@ -871,7 +1297,7 @@
                 const isSel = selectedGames.has(g.id);
                 return `
                   <div class="game-item-card ${isSel ? 'selected' : ''}" data-id="${g.id}">
-                    <span style="font-size:24px">${g.icon}</span>
+                    <span class="sport-icon-wrap">${renderSportIcon(g, 24)}</span>
                     <div><strong style="display:block;font-size:14px;color:var(--text-main)">${g.name}</strong></div>
                   </div>
                 `;
@@ -890,64 +1316,25 @@
       <div id="viewB2" style="${activeSubTabB==='viewB2'?'display:block':'display:none'}">
         <div class="glass-panel" style="padding:24px">
           <p style="color:var(--text-muted);font-size:14px;margin-bottom:20px">${t('b2Sub')}</p>
-          ${matches.length === 0 ? `
-            <div style="text-align:center;padding:48px 20px;color:var(--text-muted)">
-              <p style="font-size:48px;margin-bottom:12px">🎾</p>
-              <p style="font-size:16px">No continuous pre-matched sessions yet.</p>
-              <p style="font-size:13px">Set your availability in B1 to auto-match continuous intersection sessions!</p>
+          <div style="margin-bottom:18px">
+            <h4 style="font-size:14px;font-weight:800;margin-bottom:12px;color:var(--text-main)">${t('upcomingSessions')} (${upcomingMatches.length})</h4>
+            ${upcomingMatches.length === 0 ? `
+              <div style="text-align:center;padding:36px 20px;color:var(--text-muted)">
+                <p style="font-size:40px;margin-bottom:10px">🎾</p>
+                <p style="font-size:15px">${t('noUpcoming')}</p>
+                <p style="font-size:13px;margin-top:6px">${t('setAvailabilityHint')}</p>
+              </div>
+            ` : upcomingMatches.map(m => renderMatchCard(m, games, currentUser, lang)).join('')}
+          </div>
+          ${pastMatches.length ? `
+            <button type="button" class="hub-section-toggle" id="togglePastHubBtn">
+              <span>${t('pastSessions')} (${pastMatches.length})</span>
+              <span>${pastHubExpanded ? t('hidePast') : t('showPast')}</span>
+            </button>
+            <div class="hub-section-body ${pastHubExpanded ? '' : 'collapsed'}" id="pastHubBody">
+              ${pastMatches.map(m => renderMatchCard(m, games, currentUser, lang)).join('')}
             </div>
-          ` : `
-            <div>
-              ${matches.map(m => {
-                const gameObj = games.find(g => g.id === m.gameId) || { name: m.gameId, icon: '🎮' };
-                const allUsers = store.getUsers();
-                const isConfirmed = m.status === 'confirmed';
-                const userHasConfirmed = m.confirmedUserIds.includes(currentUser.id);
-                const [w, d] = m.dayKey.split('-');
-                const dayObj = DAYS.find(item => item.id === d) || { en: d, zh: d };
-                return `
-                  <div class="match-card ${isConfirmed ? 'confirmed' : ''}">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
-                      <div style="display:flex;align-items:center;gap:12px">
-                        <span style="font-size:32px;background:rgba(255,255,255,0.06);padding:8px 14px;border-radius:14px">${gameObj.icon}</span>
-                        <div>
-                          <h4 style="font-size:18px;font-weight:800;color:#fff">${gameObj.name}</h4>
-                          <div style="color:var(--text-muted);font-size:13px;display:flex;align-items:center;gap:8px;margin-top:4px">
-                            <span>📅 ${w === 'this' ? 'This Week' : 'Next Week'} (${lang === 'zh' ? dayObj.zh : dayObj.en})</span>
-                            <strong style="color:var(--secondary)">⏰ Continuous Intersection: ${m.startT} - ${m.endT} (${m.durationMins} mins)</strong>
-                          </div>
-                        </div>
-                      </div>
-                      <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
-                    </div>
-                    <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;margin-bottom:16px">
-                      <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:8px">${t('membersLabel')} (${m.confirmedUserIds.length}/${m.userIds.length} Confirmed)</span>
-                      <div style="display:flex;flex-wrap:wrap;gap:8px">
-                        ${m.userIds.map(uId => {
-                          const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
-                          const hasConf = m.confirmedUserIds.includes(uId);
-                          return `
-                            <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:${hasConf?'var(--success-bg)':'rgba(255,255,255,0.06)'};border:1px solid ${hasConf?'var(--success)':'rgba(255,255,255,0.1)'};font-size:13px;font-weight:600">
-                              <span>${u.avatar} ${u.name}</span>
-                              ${hasConf ? '<span style="color:var(--success)">✓</span>' : ''}
-                            </div>
-                          `;
-                        }).join('')}
-                      </div>
-                    </div>
-                    ${m.userIds.includes(currentUser.id) ? `
-                      <div style="display:flex;gap:10px;justify-content:flex-end">
-                        <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${t('optOutSession')}</button>
-                        <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
-                          ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
-                        </button>
-                      </div>
-                    ` : ''}
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          `}
+          ` : ''}
         </div>
       </div>
     `;
@@ -956,24 +1343,62 @@
     const tabB2 = container.querySelector('#tabB2');
     tabB1.onclick = () => { activeSubTabB = 'viewB1'; renderFeatureB(container); };
     tabB2.onclick = () => { activeSubTabB = 'viewB2'; renderFeatureB(container); };
-    container.querySelector('#setThisWeekBtn').onclick = () => { activeWeek = 'this'; renderFeatureB(container); };
-    container.querySelector('#setNextWeekBtn').onclick = () => { activeWeek = 'next'; renderFeatureB(container); };
-    
+
+    container.querySelector('#setThisWeekBtn').onclick = () => {
+      activeWeek = 'this';
+      ensureCalendarRangeForWeek('this');
+      renderFeatureB(container);
+    };
+    container.querySelector('#setNextWeekBtn').onclick = () => {
+      activeWeek = 'next';
+      ensureCalendarRangeForWeek('next');
+      renderFeatureB(container);
+    };
+
+    const applyCalBtn = container.querySelector('#applyCalRangeBtn');
+    if (applyCalBtn) {
+      applyCalBtn.onclick = () => {
+        const from = container.querySelector('#calFrom').value;
+        const to = container.querySelector('#calTo').value;
+        if (!from || !to) return;
+        if (parseISODate(from) > parseISODate(to)) {
+          calendarRange = { from: to, to: from };
+        } else {
+          calendarRange = { from, to };
+        }
+        const mid = eachDateInclusive(calendarRange.from, calendarRange.to);
+        if (mid.length) {
+          const resolved = resolveWeekAndDay(mid[0]);
+          activeWeek = resolved.week;
+        }
+        renderFeatureB(container);
+      };
+    }
+
+    const togglePast = container.querySelector('#togglePastHubBtn');
+    if (togglePast) {
+      togglePast.onclick = () => {
+        pastHubExpanded = !pastHubExpanded;
+        renderFeatureB(container);
+      };
+    }
+
     container.querySelector('#applyRangeBtn').onclick = async () => {
       const isWeekdays = container.querySelector('#chkWeekdays').checked;
       const isWeekends = container.querySelector('#chkWeekends').checked;
       const startT = container.querySelector('#rangeStart').value;
       const endT = container.querySelector('#rangeEnd').value;
-      
-      const targetDays = [];
-      if (isWeekdays) targetDays.push('Mon', 'Tue', 'Wed', 'Thu', 'Fri');
-      if (isWeekends) targetDays.push('Sat', 'Sun');
-      if (targetDays.length === 0) targetDays.push('Mon', 'Tue', 'Wed', 'Thu', 'Fri');
 
-      targetDays.forEach(day => {
+      const targetDows = new Set();
+      if (isWeekdays) [1, 2, 3, 4, 5].forEach(d => targetDows.add(d));
+      if (isWeekends) { targetDows.add(6); targetDows.add(0); }
+      if (targetDows.size === 0) [1, 2, 3, 4, 5].forEach(d => targetDows.add(d));
+
+      eachDateInclusive(calendarRange.from, calendarRange.to).forEach(dateObj => {
+        if (!targetDows.has(dateObj.getDay())) return;
         TIME_SLOTS.forEach(tSlot => {
           if (tSlot >= startT && tSlot < endT) {
-            selectedSlots.add(`${activeWeek}-${day}-${tSlot}`);
+            selectedSlots.add(slotKeyForDate(dateObj, tSlot));
           }
         });
       });
@@ -984,7 +1409,11 @@
     };
 
     container.querySelector('#clearSlotsBtn').onclick = async () => {
-      selectedSlots.clear();
+      eachDateInclusive(calendarRange.from, calendarRange.to).forEach(dateObj => {
+        TIME_SLOTS.forEach(tSlot => {
+          selectedSlots.delete(slotKeyForDate(dateObj, tSlot));
+        });
+      });
       try {
         await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
         renderFeatureB(container);
@@ -1075,7 +1504,7 @@
         <div style="margin-bottom:20px;max-height:240px;overflow-y:auto">
           ${games.map(g => `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;margin-bottom:8px">
-              <div style="display:flex;align-items:center;gap:10px"><span style="font-size:20px">${g.icon}</span><span><strong>${g.name}</strong></span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span class="sport-icon-wrap">${renderSportIcon(g, 22)}</span><span><strong>${g.name}</strong></span></div>
               <button class="btn btn-danger btn-sm del-cat-btn" data-id="${g.id}">Delete</button>
             </div>
           `).join('')}
@@ -1476,6 +1905,7 @@
           <span class="brand-title">${t('appName')}</span>
         </a>
       `;
+      renderFeedbackFab();
       return;
     }
 
@@ -1517,8 +1947,11 @@
 
     document.getElementById('toggleLangBtn').onclick = () => { setLang(getLang() === 'en' ? 'zh' : 'en'); renderNavbar(); renderRoute(); };
 
+    renderFeedbackFab();
+
     document.getElementById('logoutBtn').onclick = () => {
       store.logout();
+      renderFeedbackFab();
       renderNavbar();
       renderAuthModal(() => {
         renderNavbar();
