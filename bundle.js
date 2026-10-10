@@ -1287,7 +1287,6 @@
           </div>
         </div>
         ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
-          ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
           <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
             <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${lang === 'zh' ? '退出该场' : 'Exit This Match'}</button>
             <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
