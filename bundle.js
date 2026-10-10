@@ -1965,12 +1965,10 @@
 
     document.getElementById('logoutBtn').onclick = () => {
       store.logout();
+      currentRoute = 'home';
       renderFeedbackFab();
       renderNavbar();
-      renderAuthModal(() => {
-        renderNavbar();
-        renderRoute();
-      });
+      renderRoute();
     };
   }
 
@@ -2054,19 +2052,22 @@
       </div>
 
       <div class="feature-grid">
-        ${visibleCards.map(card => `
-          <div class="glass-panel feature-card">
-            <div class="card-top">
-              <div class="card-header-icon" style="background:${card.key === 'A' ? 'var(--primary-light)' : card.key === 'B' ? 'var(--secondary-light)' : 'rgba(249,115,22,0.15)'};color:${card.key === 'A' ? 'var(--primary)' : card.key === 'B' ? 'var(--secondary)' : 'var(--accent-orange)'}">${card.icon}</div>
-              <div class="card-title">${card.title}</div>
-              <p class="card-desc">${card.desc}</p>
-              <p style="margin-top:12px;color:var(--text-muted);font-size:12px;line-height:1.6">${card.guide}</p>
+        ${visibleCards.map(card => {
+          const buttonText = lang === 'zh' ? '进入' : 'Enter';
+          return `
+            <div class="glass-panel feature-card">
+              <div class="card-top">
+                <div class="card-header-icon" style="background:${card.key === 'A' ? 'var(--primary-light)' : card.key === 'B' ? 'var(--secondary-light)' : 'rgba(249,115,22,0.15)'};color:${card.key === 'A' ? 'var(--primary)' : card.key === 'B' ? 'var(--secondary)' : 'var(--accent-orange)'}">${card.key === 'B' ? '🏀' : card.icon}</div>
+                <div class="card-title">${card.title}</div>
+                <p class="card-desc">${card.desc}</p>
+                <p style="margin-top:12px;color:var(--text-muted);font-size:12px;line-height:1.6">${card.guide}</p>
+              </div>
+              <div>
+                <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">${buttonText}</button>
+              </div>
             </div>
-            <div>
-              <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">进入</button>
-            </div>
-          </div>
-        `).join('')}
+          `;
+        }).join('')}
       </div>
     `;
 
