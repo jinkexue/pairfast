@@ -941,6 +941,58 @@
     };
   }
 
+  function renderProfileModal(onSaved) {
+    const currentUser = store.getCurrentUser();
+    if (!currentUser) return;
+    let modal = document.getElementById('profileModal');
+    if (!modal) {
+      modal = document.createElement('div'); modal.id = 'profileModal'; modal.className = 'modal-overlay'; modal.style.zIndex = '2100'; document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+      <div class="glass-panel modal-box">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+          <h3 style="font-size:20px;font-weight:800;margin:0">${getLang() === 'zh' ? '个人资料' : 'Profile'}</h3>
+          <button type="button" class="btn btn-ghost btn-sm" id="closeProfileModal">✕</button>
+        </div>
+        <form id="profileForm">
+          <div class="form-group">
+            <label>${getLang() === 'zh' ? '用户名' : 'Username'}</label>
+            <input type="text" id="profileName" class="form-input" value="${currentUser.name || ''}" required>
+          </div>
+          <div class="form-group">
+            <label>${getLang() === 'zh' ? '新密码' : 'New Password'}</label>
+            <input type="text" id="profilePassword" class="form-input" value="${currentUser.password || ''}" required placeholder="${getLang() === 'zh' ? '请输入新密码' : 'Enter a new password'}">
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px">
+            <button type="button" class="btn btn-ghost" id="cancelProfileModal">${getLang() === 'zh' ? '取消' : 'Cancel'}</button>
+            <button type="submit" class="btn btn-primary">${getLang() === 'zh' ? '保存' : 'Save'}</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    modal.classList.add('active');
+    document.getElementById('closeProfileModal').onclick = () => modal.classList.remove('active');
+    document.getElementById('cancelProfileModal').onclick = () => modal.classList.remove('active');
+    document.getElementById('profileForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('profileName').value.trim();
+      const password = document.getElementById('profilePassword').value.trim();
+      if (!name || !password) {
+        alert(getLang() === 'zh' ? '用户名和密码都不能为空。' : 'Username and password cannot be empty.');
+        return;
+      }
+      try {
+        await store.updateUser({ ...currentUser, name, password, permissions: currentUser.permissions || ['B'] });
+        modal.classList.remove('active');
+        if (onSaved) onSaved();
+      } catch (err) {
+        alert(err.message || (getLang() === 'zh' ? '保存失败' : 'Save failed'));
+      }
+    };
+  }
+
   // --------------------------------------------------------------------------
   // 4. Feature A: Dynamic Grouping
   // --------------------------------------------------------------------------
@@ -1945,6 +1997,7 @@
           <div class="user-avatar">${currentUser.avatar || '👤'}</div>
           <div><strong style="display:block;line-height:1">${currentUser.name}</strong></div>
         </div>
+        <button class="btn btn-ghost btn-sm" id="profileBtn">👤 ${lang === 'zh' ? '资料' : 'Profile'}</button>
         <button class="btn-lang" id="toggleLangBtn">🌐 ${lang === 'en' ? '中文' : 'English'}</button>
         <button class="btn btn-ghost btn-sm" id="logoutBtn">🚪 ${t('logoutBtn')}</button>
       </div>
@@ -1960,6 +2013,9 @@
     if (adminBtn) adminBtn.onclick = () => renderAdminConsole(() => renderNavbar());
 
     document.getElementById('toggleLangBtn').onclick = () => { setLang(getLang() === 'en' ? 'zh' : 'en'); renderNavbar(); renderRoute(); };
+    document.getElementById('profileBtn').onclick = () => {
+      renderProfileModal(() => { renderNavbar(); renderRoute(); });
+    };
 
     renderFeedbackFab();
 
@@ -2004,6 +2060,9 @@
     const isGuest = !currentUser;
     const perms = currentUser ? (currentUser.permissions || []) : [];
     const lang = getLang();
+    const allMatches = store.getGameMatches() || [];
+    const upcomingMatches = allMatches.filter(m => !isMatchPast(m));
+    const nextMatch = upcomingMatches.slice().sort((a, b) => (dayKeyToDate(a.dayKey) || new Date(0)) - (dayKeyToDate(b.dayKey) || new Date(0)))[0] || null;
 
     const moduleCards = [
       {
@@ -2019,7 +2078,7 @@
       {
         key: 'B',
         route: 'featB',
-        icon: '🎮',
+        icon: '🏓',
         title: t('featBTitle'),
         desc: t('featBDesc'),
         guide: isGuest
@@ -2054,13 +2113,21 @@
       <div class="feature-grid">
         ${visibleCards.map(card => {
           const buttonText = lang === 'zh' ? '进入' : 'Enter';
+          const hubSummary = card.key === 'B' ? (
+            upcomingMatches.length === 0
+              ? (lang === 'zh' ? '暂无组局' : 'No groups yet')
+              : nextMatch
+                ? (lang === 'zh' ? `${upcomingMatches.length} 个组局 · 下一场 ${formatMatchDateLabel(nextMatch, lang)}` : `${upcomingMatches.length} group${upcomingMatches.length > 1 ? 's' : ''} · Next ${formatMatchDateLabel(nextMatch, lang)}`)
+                : (lang === 'zh' ? `${upcomingMatches.length} 个组局已生成` : `${upcomingMatches.length} group${upcomingMatches.length > 1 ? 's' : ''} ready`)
+          ) : '';
           return `
             <div class="glass-panel feature-card">
               <div class="card-top">
-                <div class="card-header-icon" style="background:${card.key === 'A' ? 'var(--primary-light)' : card.key === 'B' ? 'var(--secondary-light)' : 'rgba(249,115,22,0.15)'};color:${card.key === 'A' ? 'var(--primary)' : card.key === 'B' ? 'var(--secondary)' : 'var(--accent-orange)'}">${card.key === 'B' ? '🏀' : card.icon}</div>
+                <div class="card-header-icon" style="background:${card.key === 'A' ? 'var(--primary-light)' : card.key === 'B' ? 'var(--secondary-light)' : 'rgba(249,115,22,0.15)'};color:${card.key === 'A' ? 'var(--primary)' : card.key === 'B' ? 'var(--secondary)' : 'var(--accent-orange)'}">${card.icon}</div>
                 <div class="card-title">${card.title}</div>
                 <p class="card-desc">${card.desc}</p>
                 <p style="margin-top:12px;color:var(--text-muted);font-size:12px;line-height:1.6">${card.guide}</p>
+                ${hubSummary ? `<div style="margin-top:12px;padding:8px 10px;border-radius:10px;background:rgba(20,184,166,0.08);border:1px solid rgba(20,184,166,0.18);color:var(--secondary);font-size:11px;line-height:1.5;font-weight:700">${hubSummary}</div>` : ''}
               </div>
               <div>
                 <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">${buttonText}</button>
