@@ -605,6 +605,49 @@
           })
         });
       }
+
+      const pref = this.getUserGamePref(userId);
+      const currentSlots = new Set(normalizeSlotList(pref.slots || []));
+      const matchDate = dayKeyToDate(match.dayKey);
+      if (matchDate) {
+        const startM = timeToMinutes(match.startT);
+        const endM = timeToMinutes(match.endT);
+        const slotsToRemove = [];
+        for (let t = startM; t < endM; t += 30) {
+          slotsToRemove.push(`${toISODate(matchDate)}|${minutesToTime(t)}`);
+        }
+        slotsToRemove.forEach(s => currentSlots.delete(s));
+        await this.saveUserGamePref(userId, Array.from(currentSlots), pref.gameIds || []);
+      }
+    }
+
+    async joinGameMatch(matchId, userId) {
+      const match = (this.data.gameMatches || []).find(m => m.id === matchId);
+      if (!match) return;
+      if (!match.userIds.includes(userId)) match.userIds.push(userId);
+      if (!match.confirmedUserIds.includes(userId)) match.confirmedUserIds.push(userId);
+      match.status = 'confirmed';
+      await api('game-matches/' + matchId, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          userIds: match.userIds,
+          confirmedUserIds: match.confirmedUserIds,
+          status: match.status
+        })
+      });
+
+      const pref = this.getUserGamePref(userId);
+      const currentSlots = new Set(normalizeSlotList(pref.slots || []));
+      const matchDate = dayKeyToDate(match.dayKey);
+      if (matchDate) {
+        const startM = timeToMinutes(match.startT);
+        const endM = timeToMinutes(match.endT);
+        for (let t = startM; t < endM; t += 30) {
+          currentSlots.add(`${toISODate(matchDate)}|${minutesToTime(t)}`);
+        }
+        const gameIds = Array.from(new Set([...(pref.gameIds || []), match.gameId]));
+        await this.saveUserGamePref(userId, Array.from(currentSlots), gameIds);
+      }
     }
 
     getGameMatches() { return this.data.gameMatches || []; }
@@ -1244,13 +1287,18 @@
           </div>
         </div>
         ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
-          <div style="display:flex;gap:10px;justify-content:flex-end">
-            <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${t('optOutSession')}</button>
+          ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
+          <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${lang === 'zh' ? '退出该场' : 'Exit This Match'}</button>
             <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
               ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
             </button>
           </div>
-        ` : ''}
+        ` : (!past ? `
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary btn-sm join-match-btn" data-id="${m.id}">${lang === 'zh' ? '加入该场' : 'Join This Match'}</button>
+          </div>
+        ` : '')}
       </div>
     `;
   }
@@ -1339,7 +1387,6 @@
                 <input type="date" id="calFrom" class="form-input" value="${calendarRange.from}">
                 <label style="font-size:12px;color:var(--text-muted)">${t('dateTo')}</label>
                 <input type="date" id="calTo" class="form-input" value="${calendarRange.to}">
-                <button class="btn btn-ghost btn-sm" id="applyCalRangeBtn">${lang === 'zh' ? '应用日期范围' : 'Apply Date Range'}</button>
               </div>
             </div>
                   <div class="calendar-toolbar-row">
@@ -1447,25 +1494,26 @@
       renderFeatureB(container);
     };
 
-    const applyCalBtn = container.querySelector('#applyCalRangeBtn');
-    if (applyCalBtn) {
-      applyCalBtn.onclick = () => {
-        const from = container.querySelector('#calFrom').value;
-        const to = container.querySelector('#calTo').value;
-        if (!from || !to) return;
-        if (parseISODate(from) > parseISODate(to)) {
-          calendarRange = { from: to, to: from };
-        } else {
-          calendarRange = { from, to };
-        }
-        const mid = eachDateInclusive(calendarRange.from, calendarRange.to);
-        if (mid.length) {
-          const resolved = resolveWeekAndDay(mid[0]);
-          activeWeek = resolved.week;
-        }
-        renderFeatureB(container);
-      };
-    }
+    const calFromInput = container.querySelector('#calFrom');
+    const calToInput = container.querySelector('#calTo');
+    const applyCalendarRange = () => {
+      const from = calFromInput.value;
+      const to = calToInput.value;
+      if (!from || !to) return;
+      if (parseISODate(from) > parseISODate(to)) {
+        calendarRange = { from: to, to: from };
+      } else {
+        calendarRange = { from, to };
+      }
+      const mid = eachDateInclusive(calendarRange.from, calendarRange.to);
+      if (mid.length) {
+        const resolved = resolveWeekAndDay(mid[0]);
+        activeWeek = resolved.week;
+      }
+      renderFeatureB(container);
+    };
+    if (calFromInput) calFromInput.onchange = applyCalendarRange;
+    if (calToInput) calToInput.onchange = applyCalendarRange;
 
     const togglePast = container.querySelector('#togglePastHubBtn');
     if (togglePast) {
@@ -1578,8 +1626,22 @@
 
     container.querySelectorAll('.opt-out-btn').forEach(btn => {
       btn.onclick = async () => {
+        const msg = lang === 'zh'
+          ? '确认退出该场？请通知其他组员，以免他们等待你。'
+          : 'Leave this match? Please notify the other players so they know you are stepping out.';
+        if (!window.confirm(msg)) return;
         try {
           await store.optOutGameMatch(btn.dataset.id, currentUser.id);
+          activeSubTabB = 'viewB2';
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
+
+    container.querySelectorAll('.join-match-btn').forEach(btn => {
+      btn.onclick = async () => {
+        try {
+          await store.joinGameMatch(btn.dataset.id, currentUser.id);
           activeSubTabB = 'viewB2';
           renderFeatureB(container);
         } catch (err) { alert(err.message); }
