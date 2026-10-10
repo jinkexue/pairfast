@@ -2067,10 +2067,17 @@
     renderRoute();
   }
 
+  function isAdminUser(user) {
+    if (!user) return false;
+    const role = String(user.role || '').toLowerCase();
+    return role === 'admin' || user.id === 'u1';
+  }
+
   function renderNavbar() {
     const navEl = document.getElementById('mainNavbar');
     if (!navEl) return;
     const currentUser = store.getCurrentUser();
+    const isAdmin = isAdminUser(currentUser);
     
     if (!currentUser) {
       navEl.innerHTML = `
@@ -2110,7 +2117,7 @@
         ${perms.includes('C') ? `<button class="nav-btn ${currentRoute === 'featC' ? 'active' : ''}" id="navFeatCBtn">🚗 ${t('navFeatC')}</button>` : ''}
       </div>
       <div class="nav-user-area">
-        ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="navAdminBtn" style="border-color:var(--secondary);color:var(--secondary)">⚙️ ${t('navAdmin')}</button>` : ''}
+        ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="navAdminBtn" style="border-color:var(--secondary);color:var(--secondary)">⚙️ ${t('navAdmin')}</button>` : ''}
         <div class="user-chip">
           <div class="user-avatar">${currentUser.avatar || '👤'}</div>
           <div><strong style="display:block;line-height:1">${currentUser.name}</strong></div>
@@ -2128,7 +2135,14 @@
     if (perms.includes('C')) document.getElementById('navFeatCBtn').onclick = () => navigate('featC');
     
     const adminBtn = document.getElementById('navAdminBtn');
-    if (adminBtn) adminBtn.onclick = () => renderAdminConsole(() => renderNavbar());
+    if (adminBtn) {
+      adminBtn.type = 'button';
+      adminBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        renderAdminConsole(() => renderNavbar());
+      };
+    }
 
     document.getElementById('toggleLangBtn').onclick = () => { setLang(getLang() === 'en' ? 'zh' : 'en'); renderNavbar(); renderRoute(); };
     document.getElementById('profileBtn').onclick = () => {
