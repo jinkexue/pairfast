@@ -741,6 +741,10 @@
         const res = await store.login(name, pass);
         if (res.success) {
           modal.classList.remove('active');
+          const loggedInUser = store.getCurrentUser();
+          if (loggedInUser && (loggedInUser.permissions || []).includes('B')) {
+            currentRoute = 'featB';
+          }
           if (onLoginSuccess) onLoginSuccess();
         } else {
           errEl.textContent = t('invalidAuth');
@@ -1108,11 +1112,12 @@
   function formatMatchDateLabel(m, lang) {
     const date = dayKeyToDate(m.dayKey);
     if (!date) return m.dayKey || '';
-    const [w, d] = String(m.dayKey).split('-');
-    const dayObj = DAYS.find(item => item.id === d) || { en: d, zh: d };
-    const weekLabel = w === 'next' ? t('tabNextWeek') : t('tabThisWeek');
-    const dayName = lang === 'zh' ? dayObj.zh : dayObj.en;
-    return `${weekLabel} · ${dayName} · ${toISODate(date)}`;
+    const weekdayName = date.toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-US', { weekday: 'long' });
+    const isoDate = toISODate(date);
+    const dayName = lang === 'zh' ? weekdayName.replace('星期', '周') : weekdayName;
+    const dayKey = String(m.dayKey || '');
+    const relativeWeek = dayKey.startsWith('next-') ? t('tabNextWeek') : t('tabThisWeek');
+    return `${relativeWeek} · ${dayName} · ${isoDate}`;
   }
 
   function renderMatchCard(m, games, currentUser, lang) {
@@ -1999,7 +2004,7 @@
   function renderHomePortal(container) {
     const currentUser = store.getCurrentUser();
     const isGuest = !currentUser;
-    const perms = currentUser ? (currentUser.permissions || []) : ['A', 'B', 'C'];
+    const perms = currentUser ? (currentUser.permissions || []) : [];
     const lang = getLang();
 
     const moduleCards = [
@@ -2009,7 +2014,6 @@
         icon: '⚡',
         title: t('featATitle'),
         desc: t('featADesc'),
-        button: t('enterFeatA'),
         guide: isGuest
           ? 'Find your vibe. Match your time.'
           : 'Match people by vibe, timing, and preference.'
@@ -2020,7 +2024,6 @@
         icon: '🎮',
         title: t('featBTitle'),
         desc: t('featBDesc'),
-        button: t('enterFeatB'),
         guide: isGuest
           ? 'Pick your slots. Let the crew find you.'
           : 'Set your free blocks and let the app build your next game crew.'
@@ -2031,12 +2034,12 @@
         icon: '🚗',
         title: t('featCTitle'),
         desc: t('featCDesc'),
-        button: t('enterFeatC'),
         guide: isGuest
           ? 'Plan the ride. Share the trip.'
           : 'Set your commute and match with the right travel crew.'
       }
     ];
+    const visibleCards = isGuest ? moduleCards.filter(card => card.key === 'B') : moduleCards.filter(card => perms.includes(card.key));
 
     container.innerHTML = `
       <div style="margin-bottom:24px">
@@ -2051,7 +2054,7 @@
       </div>
 
       <div class="feature-grid">
-        ${moduleCards.filter(card => isGuest || perms.includes(card.key)).map(card => `
+        ${visibleCards.map(card => `
           <div class="glass-panel feature-card">
             <div class="card-top">
               <div class="card-header-icon" style="background:${card.key === 'A' ? 'var(--primary-light)' : card.key === 'B' ? 'var(--secondary-light)' : 'rgba(249,115,22,0.15)'};color:${card.key === 'A' ? 'var(--primary)' : card.key === 'B' ? 'var(--secondary)' : 'var(--accent-orange)'}">${card.icon}</div>
@@ -2060,7 +2063,7 @@
               <p style="margin-top:12px;color:var(--text-muted);font-size:12px;line-height:1.6">${card.guide}</p>
             </div>
             <div>
-              <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">${isGuest ? 'View Guide' : card.button}</button>
+              <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">进入</button>
             </div>
           </div>
         `).join('')}
