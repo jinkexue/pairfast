@@ -47,7 +47,7 @@
       featCTitle: "Option C: Carpool Mobility",
       featCDesc: "Google Maps integration to 7019 8 St NE, Calgary. Work/Home willingness multi-selection, distance sorting & anonymous privacy.",
       enterFeatC: "Launch Carpool System",
-      b1Title: "Time & Activity Preferences",
+      b1Title: "My Availability",
       b1Sub: "Configure your available time slots for this week & next week, and select activities you want to join.",
       tabThisWeek: "This Week",
       tabNextWeek: "Next Week",
@@ -61,7 +61,7 @@
       selectGamesLabel: "Select Activity Categories (Multiple):",
       manageCategoriesBtn: "Manage Categories (Admin)",
       savePrefBtn: "Save Availability & Activity Choices",
-      b2Title: "Activity Teamup Hub",
+      b2Title: "Auto Match",
       b2Sub: "Auto pre-matched sessions based on continuous time intersection & identical activity choice.",
       confirmSession: "Confirm Attendance (2nd Step)",
       optOutSession: "Opt-Out",
@@ -160,7 +160,7 @@
       featCTitle: "拼车系统 (功能 C)",
       featCDesc: "基于 Google 地图的拼车匹配（终点 7019 8 St NE, Calgary）。上下班意愿独立多选、距离排序与匹配前匿名防护。",
       enterFeatC: "进入拼车匹配系统",
-      b1Title: "时间段与活动偏好设置 (B1)",
+      b1Title: "我的空余时间 (B1)",
       b1Sub: "请设置您本周及下周空余时间段并勾选喜爱的活动/运动类型。",
       tabThisWeek: "本周 (This Week)",
       tabNextWeek: "下周 (Next Week)",
@@ -174,7 +174,7 @@
       selectGamesLabel: "选择活动/运动种类（可多选）：",
       manageCategoriesBtn: "管理活动种类 (管理员专用)",
       savePrefBtn: "保存我的时间与活动设置",
-      b2Title: "活动组队主页大厅 (B2)",
+      b2Title: "自动匹配 (B2)",
       b2Sub: "系统自动提取同项目用户的连续交集时间段打包合并为组局场次。",
       confirmSession: "二次确认参加 (2nd Step)",
       optOutSession: "退出该场",
@@ -1172,6 +1172,41 @@
     return `${relativeWeek} · ${dayName} · ${isoDate}`;
   }
 
+  function renderCompactMatchCard(m, games, lang) {
+    const gameObj = games.find(g => g.id === m.gameId) || { name: m.gameId, icon: '🎮' };
+    const isConfirmed = m.status === 'confirmed';
+    const allUsers = store.getUsers();
+    const memberCount = (m.userIds || []).length;
+    return `
+      <div class="match-card ${isConfirmed ? 'confirmed' : ''}" style="padding:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="sport-icon-wrap" style="width:42px;height:42px;background:rgba(255,255,255,0.06);border-radius:12px">${renderSportIcon(gameObj, 24)}</span>
+            <div>
+              <h4 style="font-size:16px;font-weight:800;color:#fff;margin:0">${gameObj.name}</h4>
+              <div style="color:var(--text-muted);font-size:12px;display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+                <span>📅 ${formatMatchDateLabel(m, lang)}</span>
+              </div>
+            </div>
+          </div>
+          <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}" style="font-size:11px;padding:5px 8px">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
+        </div>
+        <div style="color:var(--text-main);font-weight:700;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <span>⏰ ${m.startT} - ${m.endT}</span>
+          <span style="color:var(--text-muted)">•</span>
+          <span>${memberCount} ${lang === 'zh' ? '成员' : 'members'}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${(m.userIds || []).slice(0, 4).map(uId => {
+            const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
+            return `<span style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);font-size:11px;font-weight:700;color:var(--text-main)">${u.avatar} ${u.name}</span>`;
+          }).join('')}
+          ${(m.userIds || []).length > 4 ? `<span style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);font-size:11px;font-weight:700;color:var(--text-main)">+${(m.userIds || []).length - 4}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
   function renderMatchCard(m, games, currentUser, lang) {
     const gameObj = games.find(g => g.id === m.gameId) || { name: m.gameId, icon: '🎮' };
     const allUsers = store.getUsers();
@@ -1304,7 +1339,7 @@
                 <input type="date" id="calFrom" class="form-input" value="${calendarRange.from}">
                 <label style="font-size:12px;color:var(--text-muted)">${t('dateTo')}</label>
                 <input type="date" id="calTo" class="form-input" value="${calendarRange.to}">
-                <button class="btn btn-ghost btn-sm" id="applyCalRangeBtn">${t('confirm')}</button>
+                <button class="btn btn-ghost btn-sm" id="applyCalRangeBtn">${lang === 'zh' ? '应用日期范围' : 'Apply Date Range'}</button>
               </div>
             </div>
                   <div class="calendar-toolbar-row">
@@ -2063,6 +2098,7 @@
     const allMatches = store.getGameMatches() || [];
     const upcomingMatches = allMatches.filter(m => !isMatchPast(m));
     const nextMatch = upcomingMatches.slice().sort((a, b) => (dayKeyToDate(a.dayKey) || new Date(0)) - (dayKeyToDate(b.dayKey) || new Date(0)))[0] || null;
+    const previewMatches = upcomingMatches.slice(0, 2);
 
     const moduleCards = [
       {
@@ -2114,11 +2150,13 @@
         ${visibleCards.map(card => {
           const buttonText = lang === 'zh' ? '进入' : 'Enter';
           const hubSummary = card.key === 'B' ? (
-            upcomingMatches.length === 0
+            previewMatches.length === 0
               ? (lang === 'zh' ? '暂无组局' : 'No groups yet')
-              : nextMatch
-                ? (lang === 'zh' ? `${upcomingMatches.length} 个组局 · 下一场 ${formatMatchDateLabel(nextMatch, lang)}` : `${upcomingMatches.length} group${upcomingMatches.length > 1 ? 's' : ''} · Next ${formatMatchDateLabel(nextMatch, lang)}`)
-                : (lang === 'zh' ? `${upcomingMatches.length} 个组局已生成` : `${upcomingMatches.length} group${upcomingMatches.length > 1 ? 's' : ''} ready`)
+              : previewMatches.map((m, idx) => `
+                  <div style="margin-top:${idx === 0 ? '12px' : '10px'};">
+                    ${renderCompactMatchCard(m, store.getGames(), lang)}
+                  </div>
+                `).join('')
           ) : '';
           return `
             <div class="glass-panel feature-card">
@@ -2127,7 +2165,7 @@
                 <div class="card-title">${card.title}</div>
                 <p class="card-desc">${card.desc}</p>
                 <p style="margin-top:12px;color:var(--text-muted);font-size:12px;line-height:1.6">${card.guide}</p>
-                ${hubSummary ? `<div style="margin-top:12px;padding:8px 10px;border-radius:10px;background:rgba(20,184,166,0.08);border:1px solid rgba(20,184,166,0.18);color:var(--secondary);font-size:11px;line-height:1.5;font-weight:700">${hubSummary}</div>` : ''}
+                ${hubSummary ? `<div style="margin-top:12px;display:flex;flex-direction:column;gap:10px">${hubSummary}</div>` : ''}
               </div>
               <div>
                 <button class="btn ${card.key === 'A' ? 'btn-primary' : card.key === 'B' ? 'btn-secondary' : 'btn-orange'} launch-card-btn" data-route="${card.route}" style="width:100%">${buttonText}</button>
