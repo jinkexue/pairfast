@@ -518,8 +518,8 @@
         id: venue.id || 'v_' + Date.now().toString(36),
         name: venue.name || 'New Activity Venue',
         address: venue.address || '',
-        lat: Number(venue.lat) || 0,
-        lng: Number(venue.lng) || 0,
+        lat: Number.isFinite(Number(venue.lat)) ? Number(Number(venue.lat).toFixed(6)) : 0,
+        lng: Number.isFinite(Number(venue.lng)) ? Number(Number(venue.lng).toFixed(6)) : 0,
         supportedGameIds: Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : []
       };
       this.data.activityVenues = [...(this.data.activityVenues || []), newVenue];
@@ -532,6 +532,27 @@
         console.warn('Venue sync failed:', err);
       }
       return newVenue;
+    }
+
+    async updateActivityVenue(venue) {
+      const normalized = {
+        id: venue.id,
+        name: venue.name || 'Updated Activity Venue',
+        address: venue.address || '',
+        lat: Number.isFinite(Number(venue.lat)) ? Number(Number(venue.lat).toFixed(6)) : 0,
+        lng: Number.isFinite(Number(venue.lng)) ? Number(Number(venue.lng).toFixed(6)) : 0,
+        supportedGameIds: Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : []
+      };
+      this.data.activityVenues = (this.data.activityVenues || []).map(v => v.id === normalized.id ? normalized : v);
+      try {
+        await api('activity-venues', {
+          method: 'PUT',
+          body: JSON.stringify({ venues: this.data.activityVenues })
+        });
+      } catch (err) {
+        console.warn('Venue sync failed:', err);
+      }
+      return normalized;
     }
 
     async deleteActivityVenue(venueId) {
@@ -1983,13 +2004,14 @@
     if (manageBtn) manageBtn.onclick = () => renderGameCategoryModal(() => renderFeatureB(container));
   }
 
-  function renderActivityVenueModal(onSaved) {
+  function renderActivityVenueModal(onSaved, editingVenueId = null) {
     let modal = document.getElementById('activityVenueModal');
     if (!modal) {
       modal = document.createElement('div'); modal.id = 'activityVenueModal'; modal.className = 'modal-overlay'; document.body.appendChild(modal);
     }
     const venues = store.getActivityVenues();
     const games = store.getGames();
+    const editingVenue = editingVenueId ? venues.find(v => v.id === editingVenueId) || null : null;
     modal.innerHTML = `
       <div class="glass-panel modal-box" style="width:min(100%, 860px)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
@@ -2003,38 +2025,41 @@
                 <div>
                   <strong>${v.name}</strong>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${v.address}</div>
-                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${Number(v.lat || 0).toFixed(4)}, ${Number(v.lng || 0).toFixed(4)}</div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${Number(v.lat || 0).toFixed(6)}, ${Number(v.lng || 0).toFixed(6)}</div>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:4px">🧩 ${((v.supportedGameIds || []).map(id => (games.find(g => g.id === id) || { name: id }).name).join(', ') || '—')}</div>
                 </div>
-                <button class="btn btn-danger btn-sm del-venue-btn" data-id="${v.id}">Delete</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                  <button class="btn btn-ghost btn-sm edit-venue-btn" data-id="${v.id}">Edit</button>
+                  <button class="btn btn-danger btn-sm del-venue-btn" data-id="${v.id}">Delete</button>
+                </div>
               </div>
             </div>
           `).join('')}
         </div>
         <form id="addVenueForm" style="border-top:1px dashed var(--panel-border);padding-top:18px">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <input type="text" id="venueName" class="form-input" placeholder="Venue Name" required>
-            <input type="text" id="venueAddress" class="form-input" placeholder="Search address or pick on map" required>
+            <input type="text" id="venueName" class="form-input" placeholder="Venue Name" value="${editingVenue ? (editingVenue.name || '') : ''}" required>
+            <input type="text" id="venueAddress" class="form-input" placeholder="Search address or pick on map" value="${editingVenue ? (editingVenue.address || '') : ''}" required>
           </div>
           <div style="margin-bottom:12px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">
             <div id="venueMapPreview" style="width:100%;height:200px;background:rgba(255,255,255,0.02)"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
-            <input type="number" step="0.0001" id="venueLat" class="form-input" placeholder="Latitude">
-            <input type="number" step="0.0001" id="venueLng" class="form-input" placeholder="Longitude">
+            <input type="number" step="0.000001" id="venueLat" class="form-input" placeholder="Latitude" value="${editingVenue && Number.isFinite(Number(editingVenue.lat)) ? Number(editingVenue.lat).toFixed(6) : ''}">
+            <input type="number" step="0.000001" id="venueLng" class="form-input" placeholder="Longitude" value="${editingVenue && Number.isFinite(Number(editingVenue.lng)) ? Number(editingVenue.lng).toFixed(6) : ''}">
           </div>
           <div style="margin-bottom:14px">
             <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Supported Activity Categories</div>
             <div class="perm-options" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
               ${games.map(g => `
                 <label class="perm-checkbox" style="padding:6px 10px;">
-                  <input type="checkbox" name="venueGame" value="${g.id}">
+                  <input type="checkbox" name="venueGame" value="${g.id}" ${editingVenue && Array.isArray(editingVenue.supportedGameIds) && editingVenue.supportedGameIds.includes(g.id) ? 'checked' : ''}>
                   <span>${g.name}</span>
                 </label>
               `).join('')}
             </div>
           </div>
-          <button type="submit" class="btn btn-secondary" style="width:100%">Add Venue</button>
+          <button type="submit" class="btn btn-secondary" style="width:100%">${editingVenue ? 'Save Changes' : 'Add Venue'}</button>
         </form>
       </div>
     `;
@@ -2044,13 +2069,8 @@
       const lngValue = Number(lng);
       const latInput = modal.querySelector('#venueLat');
       const lngInput = modal.querySelector('#venueLng');
-      if (latInput) latInput.value = Number.isFinite(latValue) ? latValue.toFixed(5) : '';
-      if (lngInput) lngInput.value = Number.isFinite(lngValue) ? lngValue.toFixed(5) : '';
-    };
-
-    const attachVenueMapPicker = async () => {
-      const mapEl = modal.querySelector('#venueMapPreview');
-      const addressInput = modal.querySelector('#venueAddress');
+      if (latInput) latInput.value = Number.isFinite(latValue) ? latValue.toFixed(6) : '';
+      if (lngInput) lngInput.value = Number.isFinite(lngValue) ? lngValue.toFixed(6) : '';
       const latInput = modal.querySelector('#venueLat');
       const lngInput = modal.querySelector('#venueLng');
       if (!mapEl || !addressInput || !latInput || !lngInput) return;
@@ -2155,16 +2175,27 @@
         if (onSaved) onSaved();
       };
     });
+    modal.querySelectorAll('.edit-venue-btn').forEach(btn => {
+      btn.onclick = () => {
+        renderActivityVenueModal(onSaved, btn.dataset.id);
+      };
+    });
     document.getElementById('addVenueForm').onsubmit = async (e) => {
       e.preventDefault();
       const selected = Array.from(modal.querySelectorAll('input[name="venueGame"]:checked')).map(el => el.value);
-      await store.addActivityVenue({
+      const formPayload = {
+        id: editingVenueId || undefined,
         name: document.getElementById('venueName').value.trim(),
         address: document.getElementById('venueAddress').value.trim(),
-        lat: Number(document.getElementById('venueLat').value || 0),
-        lng: Number(document.getElementById('venueLng').value || 0),
+        lat: Number(document.getElementById('venueLat').value),
+        lng: Number(document.getElementById('venueLng').value),
         supportedGameIds: selected
-      });
+      };
+      if (editingVenueId) {
+        await store.updateActivityVenue(formPayload);
+      } else {
+        await store.addActivityVenue(formPayload);
+      }
       renderActivityVenueModal(onSaved);
       if (onSaved) onSaved();
     };
