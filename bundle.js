@@ -813,6 +813,18 @@
     };
   }
 
+  function isValidImageUrl(value) {
+    const trimmed = String(value || '').trim();
+    if (!trimmed) return true;
+    if (trimmed.startsWith('data:image/')) return true;
+    try {
+      const url = new URL(trimmed);
+      return ['http:', 'https:'].includes(url.protocol);
+    } catch (err) {
+      return false;
+    }
+  }
+
   function renderAvatarHtml(value, size = 32) {
     const fallback = String(value || '').trim();
     const safeSize = Number(size) || 32;
@@ -1003,7 +1015,7 @@
               <span>${renderAvatarHtml(avatarValue, 42)}</span>
               <span style="color:var(--text-muted);font-size:12px">Paste a web image link</span>
             </div>
-            <input type="url" id="editAvatar" class="form-input" value="${avatarValue}" placeholder="https://example.com/avatar.jpg">
+            <input type="text" id="editAvatar" class="form-input" value="${avatarValue}" placeholder="https://example.com/avatar.jpg" inputmode="url">
           </div>
           <div class="form-group">
             <label>${t('colPerms')}</label>
@@ -1028,6 +1040,10 @@
       const password = document.getElementById('editPassword').value;
       const avatar = document.getElementById('editAvatar').value.trim();
       const checkedPerms = Array.from(modal.querySelectorAll('input[name="perm"]:checked')).map(el => el.value);
+      if (avatar && !isValidImageUrl(avatar)) {
+        alert('Please enter a valid image URL.');
+        return;
+      }
       try {
         if (isEdit) await store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms, avatar: avatar || '👤' });
         else await store.addUser({ name, password, permissions: checkedPerms, avatar: avatar || '👤' });
@@ -1058,7 +1074,7 @@
               <span>${renderAvatarHtml(currentUser.avatar, 52)}</span>
               <span style="color:var(--text-muted);font-size:12px">${getLang() === 'zh' ? '系统将展示为圆形头像' : 'The system will display a circular avatar'}</span>
             </div>
-            <input type="url" id="profileAvatar" class="form-input" value="${currentUser.avatar || ''}" placeholder="https://example.com/avatar.jpg">
+            <input type="text" id="profileAvatar" class="form-input" value="${currentUser.avatar || ''}" placeholder="https://example.com/avatar.jpg" inputmode="url">
           </div>
           <div class="form-group">
             <label>${getLang() === 'zh' ? '用户名' : 'Username'}</label>
@@ -1086,6 +1102,10 @@
       const avatar = document.getElementById('profileAvatar').value.trim();
       if (!name || !password) {
         alert(getLang() === 'zh' ? '用户名和密码都不能为空。' : 'Username and password cannot be empty.');
+        return;
+      }
+      if (avatar && !isValidImageUrl(avatar)) {
+        alert(getLang() === 'zh' ? '请输入有效的图片链接。' : 'Please enter a valid image URL.');
         return;
       }
       try {
@@ -1230,7 +1250,7 @@
 
   function renderSportIcon(g, size) {
     const sz = size || 24;
-    const name = ((g && g.name) || '').toLowerCase();
+    const name = String((g && g.name) || '').toLowerCase();
     const icon = (g && g.icon) || '';
     const isPickle = icon === 'pickle' || name.includes('pickle') || name.includes('匹克');
     if (isPickle) {
@@ -2113,7 +2133,7 @@
 
   function isAdminUser(user) {
     if (!user) return false;
-    const role = String(user.role || '').toLowerCase();
+    const role = String((user && user.role) || '').toLowerCase();
     return role === 'admin' || user.id === 'u1';
   }
 

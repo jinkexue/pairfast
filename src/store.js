@@ -188,7 +188,8 @@ class Store {
   }
 
   login(email, password) {
-    const user = this.data.users.find(u => u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password);
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const user = this.data.users.find(u => String((u && u.email) || '').toLowerCase() === normalizedEmail && u.password === password);
     if (user) {
       this.data.currentUserId = user.id;
       this.save();
