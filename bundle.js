@@ -2076,7 +2076,8 @@
         gestureHandling: 'greedy',
         mapTypeControl: false,
         streetViewControl: false,
-        fullscreenControl: false
+        fullscreenControl: false,
+        restriction: { country: 'CA' }
       });
       const marker = new google.maps.Marker({
         map,
@@ -2206,11 +2207,20 @@
   let activeSubTabC = 'viewC2';
 
   function loadGoogleMapsScript() {
-    if (window.google && window.google.maps) return Promise.resolve();
     const apiKey = store.getGoogleMapsApiKey();
     if (!apiKey) return Promise.resolve();
+
+    const legacyScripts = Array.from(document.querySelectorAll('script[src*="maps.googleapis.com/maps/api/js"]'));
+    legacyScripts.forEach(script => script.remove());
+
     const existing = document.getElementById('googleMapsScript');
-    if (existing) return Promise.resolve();
+    if (existing && existing.src && existing.src.includes('maps.googleapis.com/maps/api/js')) {
+      if (existing.src.includes('v=weekly') && existing.src.includes('libraries=places')) return Promise.resolve();
+      existing.remove();
+    }
+
+    if (window.google && window.google.maps && window.google.maps.places) return Promise.resolve();
+
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.id = 'googleMapsScript';
