@@ -820,21 +820,29 @@
     }
     const users = store.getUsers();
     const feedback = store.getFeedback();
+    const currentLocale = currentLang === 'zh' ? 'zh-CN' : 'en-US';
     const formatLastLogin = (value) => {
-      if (!value) return lang === 'zh' ? '暂无记录' : 'No record';
+      if (!value) return currentLang === 'zh' ? '暂无记录' : 'No record';
       const dt = new Date(value);
       if (Number.isNaN(dt.getTime())) return value;
-      return dt.toLocaleString(currentLang === 'zh' ? 'zh-CN' : 'en-US');
+      return dt.toLocaleString(currentLocale);
     };
     modal.innerHTML = `
-      <div class="glass-panel modal-box" style="width:min(100%, 940px)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <div><h2 style="font-size:22px;font-weight:800">${t('adminTitle')}</h2><p style="color:var(--text-muted);font-size:13px">Users synced from D1 database</p></div>
+      <div class="glass-panel modal-box admin-panel" style="width:min(100%, 960px)">
+        <div class="admin-panel-header">
+          <div class="admin-panel-badge">⚙️ Admin</div>
+          <div>
+            <h2 style="font-size:22px;font-weight:800;margin:0">${t('adminTitle')}</h2>
+            <p style="color:var(--text-muted);font-size:13px;margin-top:6px">Users synced from D1 database</p>
+          </div>
           <button class="btn btn-ghost btn-sm" id="closeAdminBtn">✕</button>
         </div>
-        <div style="display:flex;justify-content:flex-end;margin-bottom:16px"><button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0 16px">
+          <div class="admin-panel-meta">Admin overview • ${users.length} users</div>
+          <button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button>
+        </div>
         <div style="overflow-x:auto;margin-bottom:18px">
-          <table class="data-table">
+          <table class="data-table admin-table">
             <thead>
               <tr><th>${t('colName')}</th><th>${t('colRole')}</th><th>${t('colPerms')}</th><th>${t('colLastLogin')}</th><th>${t('colActions')}</th></tr>
             </thead>
