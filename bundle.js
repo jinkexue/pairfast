@@ -2060,14 +2060,23 @@
         console.warn('Google Maps unavailable for venue picker:', err);
         return;
       }
-      if (!window.google || !window.google.maps || !window.google.maps.places) return;
+      if (!window.google || !window.google.maps || !window.google.maps.places) {
+        const warn = document.createElement('div');
+        warn.textContent = 'Places autocomplete is disabled. Enable Places API (New) and Maps JavaScript API in Google Cloud, then refresh the page.';
+        warn.style.cssText = 'padding:8px 10px;font-size:12px;color:#fca5a5;background:rgba(127,29,29,0.45);border:1px solid rgba(248,113,113,0.45);border-radius:8px;margin-top:8px;';
+        mapEl.parentElement.appendChild(warn);
+        return;
+      }
 
       const defaultCenter = { lat: 51.0447, lng: -114.0719 };
       const map = new google.maps.Map(mapEl, {
         center: defaultCenter,
         zoom: 11,
         disableDefaultUI: true,
-        gestureHandling: 'greedy'
+        gestureHandling: 'greedy',
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false
       });
       const marker = new google.maps.Marker({
         map,
@@ -2205,11 +2214,11 @@
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.id = 'googleMapsScript';
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places&loading=async`;
       script.async = true;
       script.defer = true;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Failed to load Google Maps script.'));
+      script.onerror = () => reject(new Error('Google Maps script failed to load. Please confirm the API key is valid and the Maps JavaScript API + Places API are enabled in Google Cloud.'));
       document.head.appendChild(script);
     });
   }
