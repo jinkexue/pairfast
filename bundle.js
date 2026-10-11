@@ -2104,24 +2104,14 @@
       const geocodeAddress = async () => {
         const q = addressInput.value.trim();
         if (!q) return;
-        const key = store.getGoogleMapsApiKey();
-        if (!key) return;
 
         try {
-          const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}&region=CA&components=country:CA`);
-          const data = await response.json();
-          if (!data || data.status !== 'OK' || !Array.isArray(data.results) || !data.results[0]) {
-            console.warn('Geocoding failed:', data);
-            return;
-          }
-          const result = data.results[0];
-          const loc = result.geometry && result.geometry.location;
-          if (!loc) return;
-          const lat = Number(loc.lat);
-          const lng = Number(loc.lng);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-          addressInput.value = result.formatted_address || addressInput.value;
-          syncFromCoords(lat, lng);
+          const result = await geocodeAddressToLatLng(q, {
+            componentRestrictions: { country: 'CA' },
+            region: 'CA'
+          });
+          addressInput.value = result.formattedAddress || addressInput.value;
+          syncFromCoords(result.lat, result.lng);
         } catch (err) {
           console.warn('Address geocode failed:', err);
         }
@@ -2251,6 +2241,77 @@
     });
 
     return googleMapsLoadPromise;
+  }
+
+  function getCalgaryCenterFallback() {
+    return { lat: 51.0447, lng: -114.0719 };
+  }
+
+  function normalizeLatLng(latLng) {
+    const lat = Number(latLng && latLng.lat);
+    const lng = Number(latLng && latLng.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { lat, lng };
+    }
+    return getCalgaryCenterFallback();
+  }
+
+  async function geocodeAddressToLatLng(query, options = {}) {
+    const cleanedQuery = String(query || '').trim();
+    if (!cleanedQuery) {
+      throw new Error('Address is empty.');
+    }
+    if (!window.google || !window.google.maps || !window.google.maps.Geocoder) {
+      throw new Error('Google Maps Geocoder is unavailable.');
+    }
+
+    return await new Promise((resolve, reject) => {
+      const geocoder = new google.maps.Geocoder();
+      const request = { address: cleanedQuery, ...options };
+      geocoder.geocode(request, (results, status) => {
+        if (status !== 'OK' || !results || !results.length) {
+          reject(new Error(status || 'Address lookup failed.'));
+          return;
+        }
+        const place = results[0];
+        const location = place.geometry && place.geometry.location;
+        if (!location) {
+          reject(new Error('No geometry returned for this address.'));
+          return;
+        }
+        resolve({
+          lat: Number(location.lat()),
+          lng: Number(location.lng()),
+          formattedAddress: place.formatted_address || cleanedQuery
+        });
+      });
+    });
+  }
+
+  function createMapMarker(options) {
+    if (window.google && window.google.maps && window.google.maps.marker && window.google.maps.marker.AdvancedMarkerElement) {
+      const { map, position, title, icon } = options;
+      const marker = new window.google.maps.marker.AdvancedMarkerElement({
+        map,
+        position,
+        title
+      });
+      if (icon && icon.url && marker.element) {
+        const badge = marker.element.querySelector('.google-material-symbols');
+        if (badge) badge.style.display = 'none';
+        const img = document.createElement('img');
+        img.src = icon.url;
+        img.alt = title || 'Map marker';
+        img.style.cssText = 'width:20px;height:20px;display:block;border-radius:50%;';
+        marker.element.style.display = 'flex';
+        marker.element.style.alignItems = 'center';
+        marker.element.style.justifyContent = 'center';
+        marker.element.innerHTML = '';
+        marker.element.appendChild(img);
+      }
+      return marker;
+    }
+    return new google.maps.Marker(options);
   }
 
   async function waitForGooglePlacesReady(timeoutMs = 15000) {
@@ -2538,9 +2599,10 @@
       const mapEl = document.getElementById('carpoolMap');
       if (!mapEl || !window.google || !window.google.maps) return;
 
+      const normalizedProfile = normalizeLatLng({ lat: myProfile && myProfile.lat, lng: myProfile && myProfile.lng });
       const mapOptions = {
         zoom: 11,
-        center: { lat: myProfile.lat || CALGARY_HQ.lat, lng: myProfile.lng || CALGARY_HQ.lng },
+        center: normalizedProfile,
         styles: [
           { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
           { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
@@ -2551,28 +2613,33 @@
 
       gMapInstance = new google.maps.Map(mapEl, mapOptions);
 
-      new google.maps.Marker({
+      createMapMarker({
         position: { lat: CALGARY_HQ.lat, lng: CALGARY_HQ.lng },
         map: gMapInstance,
         title: CALGARY_HQ.name,
         icon: { url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png' }
       });
 
-      new google.maps.Marker({
-        position: { lat: myProfile.lat, lng: myProfile.lng },
-        map: gMapInstance,
-        title: 'My Departure Location',
-        icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png' }
-      });
+      if (Number.isFinite(Number(myProfile && myProfile.lat)) && Number.isFinite(Number(myProfile && myProfile.lng))) {
+        createMapMarker({
+          position: { lat: Number(myProfile.lat), lng: Number(myProfile.lng) },
+          map: gMapInstance,
+          title: 'My Departure Location',
+          icon: { url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png' }
+        });
+      }
 
       candidates.forEach(cand => {
+        const lat = Number(cand && cand.profile && cand.profile.lat);
+        const lng = Number(cand && cand.profile && cand.profile.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
         const isMatched = cand.matchState === 'accepted';
         const iconUrl = isMatched ?
           'https://maps.google.com/mapfiles/ms/icons/green-dot.png' :
           (cand.profile.hasCar ? 'https://maps.google.com/mapfiles/ms/icons/purple-dot.png' : 'https://maps.google.com/mapfiles/ms/icons/yellow-dot.png');
 
-        new google.maps.Marker({
-          position: { lat: cand.profile.lat, lng: cand.profile.lng },
+        createMapMarker({
+          position: { lat, lng },
           map: gMapInstance,
           title: cand.user.name,
           icon: { url: iconUrl }
