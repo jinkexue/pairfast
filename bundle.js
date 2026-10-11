@@ -1002,17 +1002,20 @@
     }
     const isEdit = !!userObj;
     const perms = userObj ? userObj.permissions : ['B']; // Default Permission Option B
-    const avatarValue = userObj && userObj.avatar ? userObj.avatar : '';
+    const avatarValue = userObj && isValidImageUrl(userObj.avatar) ? userObj.avatar : '';
+    const currentPassword = isEdit && userObj && userObj.password ? userObj.password : '';
+    const passwordInputValue = isEdit ? '' : '123456';
+    const passwordPlaceholder = isEdit ? 'Leave blank to keep current password' : '123456';
     modal.innerHTML = `
       <div class="glass-panel modal-box">
         <h3 style="font-size:18px;font-weight:800;margin-bottom:20px">${t('modalUserTitle')}</h3>
         <form id="userEditForm">
           <div class="form-group"><label>${t('colName')}</label><input type="text" id="editName" class="form-input" value="${isEdit ? userObj.name : ''}" required placeholder="Username (name)"></div>
-          <div class="form-group"><label>${t('passwordLabel')}</label><input type="text" id="editPassword" class="form-input" value="${isEdit ? userObj.password : '123456'}" required></div>
+          <div class="form-group"><label>${t('passwordLabel')}</label><input type="text" id="editPassword" class="form-input" value="${passwordInputValue}" placeholder="${passwordPlaceholder}" ${isEdit ? '' : 'required'}></div>
           <div class="form-group">
             <label>Avatar Image URL</label>
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-              <span>${renderAvatarHtml(avatarValue, 42)}</span>
+              <span>${renderAvatarHtml(userObj && userObj.avatar ? userObj.avatar : '', 42)}</span>
               <span style="color:var(--text-muted);font-size:12px">Paste a web image link</span>
             </div>
             <input type="text" id="editAvatar" class="form-input" value="${avatarValue}" placeholder="https://example.com/avatar.jpg" inputmode="url">
@@ -1037,7 +1040,8 @@
     document.getElementById('userEditForm').onsubmit = async (e) => {
       e.preventDefault();
       const name = document.getElementById('editName').value;
-      const password = document.getElementById('editPassword').value;
+      const inputPassword = document.getElementById('editPassword').value.trim();
+      const password = isEdit ? (inputPassword || currentPassword || '123456') : (inputPassword || '123456');
       const avatar = document.getElementById('editAvatar').value.trim();
       const checkedPerms = Array.from(modal.querySelectorAll('input[name="perm"]:checked')).map(el => el.value);
       if (avatar && !isValidImageUrl(avatar)) {
@@ -1045,7 +1049,7 @@
         return;
       }
       try {
-        if (isEdit) await store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms, avatar: avatar || '👤' });
+        if (isEdit) await store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms, avatar: avatar || (userObj.avatar || '👤') });
         else await store.addUser({ name, password, permissions: checkedPerms, avatar: avatar || '👤' });
         modal.classList.remove('active');
         if (onSaved) onSaved();
@@ -1060,6 +1064,7 @@
     if (!modal) {
       modal = document.createElement('div'); modal.id = 'profileModal'; modal.className = 'modal-overlay'; modal.style.zIndex = '2100'; document.body.appendChild(modal);
     }
+    const avatarInputValue = isValidImageUrl(currentUser.avatar) ? currentUser.avatar : '';
 
     modal.innerHTML = `
       <div class="glass-panel modal-box">
@@ -1074,7 +1079,7 @@
               <span>${renderAvatarHtml(currentUser.avatar, 52)}</span>
               <span style="color:var(--text-muted);font-size:12px">${getLang() === 'zh' ? '系统将展示为圆形头像' : 'The system will display a circular avatar'}</span>
             </div>
-            <input type="text" id="profileAvatar" class="form-input" value="${currentUser.avatar || ''}" placeholder="https://example.com/avatar.jpg" inputmode="url">
+            <input type="text" id="profileAvatar" class="form-input" value="${avatarInputValue}" placeholder="https://example.com/avatar.jpg" inputmode="url">
           </div>
           <div class="form-group">
             <label>${getLang() === 'zh' ? '用户名' : 'Username'}</label>
@@ -1082,7 +1087,7 @@
           </div>
           <div class="form-group">
             <label>${getLang() === 'zh' ? '新密码' : 'New Password'}</label>
-            <input type="text" id="profilePassword" class="form-input" value="${currentUser.password || ''}" required placeholder="${getLang() === 'zh' ? '请输入新密码' : 'Enter a new password'}">
+            <input type="text" id="profilePassword" class="form-input" value="" placeholder="${getLang() === 'zh' ? '留空则保持当前密码' : 'Leave blank to keep current password'}">
           </div>
           <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px">
             <button type="button" class="btn btn-ghost" id="cancelProfileModal">${getLang() === 'zh' ? '取消' : 'Cancel'}</button>
@@ -1098,10 +1103,11 @@
     document.getElementById('profileForm').onsubmit = async (e) => {
       e.preventDefault();
       const name = document.getElementById('profileName').value.trim();
-      const password = document.getElementById('profilePassword').value.trim();
+      const inputPassword = document.getElementById('profilePassword').value.trim();
+      const password = inputPassword || currentUser.password || '123456';
       const avatar = document.getElementById('profileAvatar').value.trim();
-      if (!name || !password) {
-        alert(getLang() === 'zh' ? '用户名和密码都不能为空。' : 'Username and password cannot be empty.');
+      if (!name) {
+        alert(getLang() === 'zh' ? '用户名不能为空。' : 'Username cannot be empty.');
         return;
       }
       if (avatar && !isValidImageUrl(avatar)) {
@@ -1109,7 +1115,7 @@
         return;
       }
       try {
-        await store.updateUser({ ...currentUser, name, password, avatar: avatar || '👤', permissions: currentUser.permissions || ['B'] });
+        await store.updateUser({ ...currentUser, name, password, avatar: avatar || (currentUser.avatar || '👤'), permissions: currentUser.permissions || ['B'] });
         modal.classList.remove('active');
         if (onSaved) onSaved();
       } catch (err) {
