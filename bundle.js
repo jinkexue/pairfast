@@ -1003,7 +1003,7 @@
     const isEdit = !!userObj;
     const perms = userObj ? userObj.permissions : ['B']; // Default Permission Option B
     const avatarValue = userObj && isValidImageUrl(userObj.avatar) ? userObj.avatar : '';
-    const currentPassword = isEdit && userObj && userObj.password ? userObj.password : '';
+    const currentPassword = isEdit && typeof userObj.password === 'string' && userObj.password.trim() && userObj.password !== 'undefined' && userObj.password !== 'null' ? userObj.password : '';
     const passwordInputValue = isEdit ? '' : '123456';
     const passwordPlaceholder = isEdit ? 'Leave blank to keep current password' : '123456';
     modal.innerHTML = `
@@ -1041,7 +1041,8 @@
       e.preventDefault();
       const name = document.getElementById('editName').value;
       const inputPassword = document.getElementById('editPassword').value.trim();
-      const password = isEdit ? (inputPassword || currentPassword || '123456') : (inputPassword || '123456');
+      const sanitizedPassword = inputPassword && inputPassword !== 'undefined' && inputPassword !== 'null' ? inputPassword : '';
+      const password = isEdit ? (sanitizedPassword || currentPassword || '123456') : (sanitizedPassword || '123456');
       const avatar = document.getElementById('editAvatar').value.trim();
       const checkedPerms = Array.from(modal.querySelectorAll('input[name="perm"]:checked')).map(el => el.value);
       if (avatar && !isValidImageUrl(avatar)) {

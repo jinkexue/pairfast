@@ -98,7 +98,8 @@ export async function onRequest(context) {
       if (method === 'PUT' && id) {
         if (!authUser || (authUser.role !== 'admin' && authUser.id !== id)) return json({ error: 'Forbidden' }, 403);
         const body = await readJson(request);
-        const passwordValue = body.password && String(body.password).trim() ? String(body.password) : undefined;
+        const rawPassword = typeof body.password === 'string' ? body.password.trim() : '';
+        const passwordValue = rawPassword && rawPassword !== 'undefined' && rawPassword !== 'null' ? rawPassword : undefined;
         if (passwordValue) {
           await db.prepare('UPDATE users SET name = ?, password = ?, permissions = ?, avatar = COALESCE(?, avatar), phone = COALESCE(?, phone) WHERE id = ?')
             .bind(body.name, passwordValue, JSON.stringify(body.permissions || ['B']), body.avatar ?? null, body.phone ?? null, id).run();

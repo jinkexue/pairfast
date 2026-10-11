@@ -48,6 +48,7 @@ export function mapUser(row) {
     id: row.id,
     name: row.name,
     role: row.role,
+    password: row.password || '',
     permissions: parseJsonField(row.permissions, ['B']),
     avatar: row.avatar || '👤',
     phone: row.phone || '',
