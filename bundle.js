@@ -813,11 +813,20 @@
     };
   }
 
-  function renderAdminConsole(onUpdate) {
-    let modal = document.getElementById('adminModal');
-    if (!modal) {
-      modal = document.createElement('div'); modal.id = 'adminModal'; modal.className = 'modal-overlay'; document.body.appendChild(modal);
+  function renderAvatarHtml(value, size = 32) {
+    const fallback = String(value || '').trim();
+    const safeSize = Number(size) || 32;
+    if (!fallback || !/^https?:\/\//i.test(fallback) && !fallback.startsWith('data:image/')) {
+      const icon = fallback || '👤';
+      return `<span class="avatar-bubble" style="width:${safeSize}px;height:${safeSize}px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);font-size:${Math.max(12, safeSize * 0.45)}px;line-height:1;">${icon}</span>`;
     }
+    const safeSrc = fallback.replace(/"/g, '&quot;');
+    return `<span class="avatar-bubble avatar-image-bubble" style="width:${safeSize}px;height:${safeSize}px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);overflow:hidden;">
+      <img src="${safeSrc}" alt="avatar" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.style.display='none'; this.parentElement.innerHTML='👤';" />
+    </span>`;
+  }
+
+  function renderAdminConsole(onUpdate) {
     const users = store.getUsers();
     const feedback = store.getFeedback();
     const currentLocale = currentLang === 'zh' ? 'zh-CN' : 'en-US';
@@ -827,68 +836,75 @@
       if (Number.isNaN(dt.getTime())) return value;
       return dt.toLocaleString(currentLocale);
     };
-    modal.innerHTML = `
-      <div class="glass-panel modal-box admin-panel" style="width:min(100%, 960px)">
-        <div class="admin-panel-header">
-          <div class="admin-panel-badge">⚙️ Admin</div>
-          <div>
-            <h2 style="font-size:22px;font-weight:800;margin:0">${t('adminTitle')}</h2>
-            <p style="color:var(--text-muted);font-size:13px;margin-top:6px">Users synced from D1 database</p>
-          </div>
-          <button class="btn btn-ghost btn-sm" id="closeAdminBtn">✕</button>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0 16px">
-          <div class="admin-panel-meta">Admin overview • ${users.length} users</div>
-          <button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button>
-        </div>
-        <div style="overflow-x:auto;margin-bottom:18px">
-          <table class="data-table admin-table">
-            <thead>
-              <tr><th>${t('colName')}</th><th>${t('colRole')}</th><th>${t('colPerms')}</th><th>${t('colLastLogin')}</th><th>${t('colActions')}</th></tr>
-            </thead>
-            <tbody>
-              ${users.map(u => `
-                <tr>
-                  <td><div style="display:flex;align-items:center;gap:8px"><span>${u.avatar || '👤'}</span><strong style="color:var(--text-main)">${u.name}</strong></div></td>
-                  <td><span class="tag-pill" style="${u.role==='admin'?'color:var(--secondary);border-color:var(--secondary)':''}">${u.role}</span></td>
-                  <td><div style="display:flex;gap:4px">${['A', 'B', 'C'].map(p => `<span class="tag-pill" style="${u.permissions.includes(p)?'background:var(--primary-light);color:#a5b4fc;border-color:var(--primary)':''}">Option ${p}</span>`).join('')}</div></td>
-                  <td style="font-size:12px;color:var(--text-muted)">${formatLastLogin(u.lastLogin)}</td>
-                  <td>
-                    <button class="btn btn-ghost btn-sm edit-user-btn" data-id="${u.id}">${t('edit')}</button>
-                    ${u.id !== 'u1' ? `<button class="btn btn-danger btn-sm del-user-btn" data-id="${u.id}">${t('delete')}</button>` : ''}
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
+    const container = document.getElementById('appContent');
+    if (!container) return;
 
-        <div style="border-top:1px solid var(--panel-border);padding-top:18px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <h3 style="font-size:18px;font-weight:800;margin:0">${t('feedbackTab')}</h3>
-            <span class="tag-pill" style="border-color:var(--primary)">${feedback.length}</span>
+    container.innerHTML = `
+      <div class="admin-panel-shell">
+        <div class="glass-panel admin-panel" style="padding:0;overflow:hidden;">
+          <div class="admin-panel-header" style="padding:22px 24px;">
+            <div class="admin-panel-badge">⚙️ Admin</div>
+            <div>
+              <h2 style="font-size:22px;font-weight:800;margin:0">${t('adminTitle')}</h2>
+              <p style="color:var(--text-muted);font-size:13px;margin-top:6px">Users synced from D1 database</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="closeAdminBtn">✕</button>
           </div>
-          ${feedback.length === 0 ? `<div class="feedback-list-item"><div class="meta">${t('feedbackEmpty')}</div></div>` : 
-            feedback.map(item => `
-              <div class="feedback-list-item">
-                <div class="meta">${item.userName || 'Anonymous'} · ${new Date(item.createdAt || Date.now()).toLocaleString()}</div>
-                <div style="margin-bottom:10px; color:var(--text-main)">${(item.message || '').replace(/</g, '&lt;')}</div>
-                <button class="btn btn-danger btn-sm delete-feedback-btn" data-id="${item.id}">${t('delete')}</button>
-              </div>
-            `).join('')}
+          <div style="padding:20px 24px 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div class="admin-panel-meta">Admin overview • ${users.length} users</div>
+            <button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button>
+          </div>
+          <div style="padding:20px 24px 8px;overflow-x:auto;">
+            <table class="data-table admin-table">
+              <thead>
+                <tr><th>${t('colName')}</th><th>${t('colRole')}</th><th>${t('colPerms')}</th><th>${t('colLastLogin')}</th><th>${t('colActions')}</th></tr>
+              </thead>
+              <tbody>
+                ${users.map(u => `
+                  <tr>
+                    <td><div style="display:flex;align-items:center;gap:10px"><span>${renderAvatarHtml(u.avatar, 32)}</span><strong style="color:var(--text-main)">${u.name}</strong></div></td>
+                    <td><span class="tag-pill" style="${u.role==='admin'?'color:var(--secondary);border-color:var(--secondary)':''}">${u.role}</span></td>
+                    <td><div style="display:flex;gap:4px;flex-wrap:wrap">${['A', 'B', 'C'].map(p => `<span class="tag-pill" style="${(u.permissions || []).includes(p)?'background:var(--primary-light);color:#a5b4fc;border-color:var(--primary)':''}">Option ${p}</span>`).join('')}</div></td>
+                    <td style="font-size:12px;color:var(--text-muted)">${formatLastLogin(u.lastLogin)}</td>
+                    <td>
+                      <button class="btn btn-ghost btn-sm edit-user-btn" data-id="${u.id}">${t('edit')}</button>
+                      ${u.id !== 'u1' ? `<button class="btn btn-danger btn-sm del-user-btn" data-id="${u.id}">${t('delete')}</button>` : ''}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="padding:20px 24px 24px;border-top:1px solid var(--panel-border);margin-top:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+              <h3 style="font-size:18px;font-weight:800;margin:0">${t('feedbackTab')}</h3>
+              <span class="tag-pill" style="border-color:var(--primary)">${feedback.length}</span>
+            </div>
+            ${feedback.length === 0 ? `<div class="feedback-list-item"><div class="meta">${t('feedbackEmpty')}</div></div>` : 
+              feedback.map(item => `
+                <div class="feedback-list-item">
+                  <div class="meta">${item.userName || 'Anonymous'} · ${new Date(item.createdAt || Date.now()).toLocaleString()}</div>
+                  <div style="margin-bottom:10px; color:var(--text-main)">${(item.message || '').replace(/</g, '&lt;')}</div>
+                  <button class="btn btn-danger btn-sm delete-feedback-btn" data-id="${item.id}">${t('delete')}</button>
+                </div>
+              `).join('')}
+          </div>
         </div>
       </div>
     `;
-    modal.classList.add('active');
-    document.getElementById('closeAdminBtn').onclick = () => modal.classList.remove('active');
-    document.getElementById('addNewUserBtn').onclick = () => { renderUserEditModal(null, () => { renderAdminConsole(onUpdate); if (onUpdate) onUpdate(); }); };
-    modal.querySelectorAll('.edit-user-btn').forEach(btn => {
+
+    const closeBtn = document.getElementById('closeAdminBtn');
+    if (closeBtn) closeBtn.onclick = () => { currentRoute = 'home'; renderNavbar(); renderRoute(); };
+    const addBtn = document.getElementById('addNewUserBtn');
+    if (addBtn) addBtn.onclick = () => { renderUserEditModal(null, () => { renderAdminConsole(onUpdate); if (onUpdate) onUpdate(); }); };
+    container.querySelectorAll('.edit-user-btn').forEach(btn => {
       btn.onclick = () => {
         const userObj = users.find(u => u.id === btn.dataset.id);
         renderUserEditModal(userObj, () => { renderAdminConsole(onUpdate); if (onUpdate) onUpdate(); });
       };
     });
-    modal.querySelectorAll('.del-user-btn').forEach(btn => {
+    container.querySelectorAll('.del-user-btn').forEach(btn => {
       btn.onclick = async () => {
         if (confirm(`Delete user ${btn.dataset.id}?`)) {
           try {
@@ -899,7 +915,7 @@
         }
       };
     });
-    modal.querySelectorAll('.delete-feedback-btn').forEach(btn => {
+    container.querySelectorAll('.delete-feedback-btn').forEach(btn => {
       btn.onclick = async () => {
         try {
           await store.deleteFeedback(btn.dataset.id);
@@ -974,12 +990,21 @@
     }
     const isEdit = !!userObj;
     const perms = userObj ? userObj.permissions : ['B']; // Default Permission Option B
+    const avatarValue = userObj && userObj.avatar ? userObj.avatar : '';
     modal.innerHTML = `
       <div class="glass-panel modal-box">
         <h3 style="font-size:18px;font-weight:800;margin-bottom:20px">${t('modalUserTitle')}</h3>
         <form id="userEditForm">
           <div class="form-group"><label>${t('colName')}</label><input type="text" id="editName" class="form-input" value="${isEdit ? userObj.name : ''}" required placeholder="Username (name)"></div>
           <div class="form-group"><label>${t('passwordLabel')}</label><input type="text" id="editPassword" class="form-input" value="${isEdit ? userObj.password : '123456'}" required></div>
+          <div class="form-group">
+            <label>Avatar Image URL</label>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+              <span>${renderAvatarHtml(avatarValue, 42)}</span>
+              <span style="color:var(--text-muted);font-size:12px">Paste a web image link</span>
+            </div>
+            <input type="url" id="editAvatar" class="form-input" value="${avatarValue}" placeholder="https://example.com/avatar.jpg">
+          </div>
           <div class="form-group">
             <label>${t('colPerms')}</label>
             <div class="perm-options">
@@ -1001,10 +1026,11 @@
       e.preventDefault();
       const name = document.getElementById('editName').value;
       const password = document.getElementById('editPassword').value;
+      const avatar = document.getElementById('editAvatar').value.trim();
       const checkedPerms = Array.from(modal.querySelectorAll('input[name="perm"]:checked')).map(el => el.value);
       try {
-        if (isEdit) await store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms });
-        else await store.addUser({ name, password, permissions: checkedPerms });
+        if (isEdit) await store.updateUser({ id: userObj.id, name, password, permissions: checkedPerms, avatar: avatar || '👤' });
+        else await store.addUser({ name, password, permissions: checkedPerms, avatar: avatar || '👤' });
         modal.classList.remove('active');
         if (onSaved) onSaved();
       } catch (err) { alert(err.message); }
@@ -1026,6 +1052,14 @@
           <button type="button" class="btn btn-ghost btn-sm" id="closeProfileModal">✕</button>
         </div>
         <form id="profileForm">
+          <div class="form-group">
+            <label>${getLang() === 'zh' ? '头像图片链接' : 'Avatar Image URL'}</label>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+              <span>${renderAvatarHtml(currentUser.avatar, 52)}</span>
+              <span style="color:var(--text-muted);font-size:12px">${getLang() === 'zh' ? '系统将展示为圆形头像' : 'The system will display a circular avatar'}</span>
+            </div>
+            <input type="url" id="profileAvatar" class="form-input" value="${currentUser.avatar || ''}" placeholder="https://example.com/avatar.jpg">
+          </div>
           <div class="form-group">
             <label>${getLang() === 'zh' ? '用户名' : 'Username'}</label>
             <input type="text" id="profileName" class="form-input" value="${currentUser.name || ''}" required>
@@ -1049,12 +1083,13 @@
       e.preventDefault();
       const name = document.getElementById('profileName').value.trim();
       const password = document.getElementById('profilePassword').value.trim();
+      const avatar = document.getElementById('profileAvatar').value.trim();
       if (!name || !password) {
         alert(getLang() === 'zh' ? '用户名和密码都不能为空。' : 'Username and password cannot be empty.');
         return;
       }
       try {
-        await store.updateUser({ ...currentUser, name, password, permissions: currentUser.permissions || ['B'] });
+        await store.updateUser({ ...currentUser, name, password, avatar: avatar || '👤', permissions: currentUser.permissions || ['B'] });
         modal.classList.remove('active');
         if (onSaved) onSaved();
       } catch (err) {
@@ -1272,7 +1307,7 @@
           ${(m.userIds || []).slice(0, 4).map(uId => {
             const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
             const hasConf = (m.confirmedUserIds || []).includes(uId);
-            return `<span style="padding:5px 10px;border-radius:999px;background:${hasConf ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)'};border:1px solid ${hasConf ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.12)'};font-size:11px;font-weight:700;color:var(--text-main)">${u.avatar} ${u.name}${hasConf ? ' ✓' : ''}</span>`;
+            return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:${hasConf ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.06)'};border:1px solid ${hasConf ? 'rgba(16,185,129,0.45)' : 'rgba(255,255,255,0.12)'};font-size:11px;font-weight:700;color:var(--text-main)">${renderAvatarHtml(u.avatar, 18)} ${u.name}${hasConf ? ' ✓' : ''}</span>`;
           }).join('')}
           ${(m.userIds || []).length > 4 ? `<span style="padding:5px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);font-size:11px;font-weight:700;color:var(--text-main)">+${(m.userIds || []).length - 4}</span>` : ''}
         </div>
@@ -1308,8 +1343,9 @@
               const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
               const hasConf = (m.confirmedUserIds || []).includes(uId);
               return `
-                <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:${hasConf?'var(--success-bg)':'rgba(255,255,255,0.06)'};border:1px solid ${hasConf?'var(--success)':'rgba(255,255,255,0.1)'};font-size:13px;font-weight:600">
-                  <span>${u.avatar} ${u.name}</span>
+                <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:${hasConf?'var(--success-bg)':'rgba(255,255,255,0.06)'};border:1px solid ${hasConf?'var(--success)':'rgba(255,255,255,0.1)'};font-size:13px;font-weight:600">
+                  <span>${renderAvatarHtml(u.avatar, 20)}</span>
+                  <span>${u.name}</span>
                   ${hasConf ? '<span style="color:var(--success)">✓</span>' : ''}
                 </div>
               `;
@@ -2127,7 +2163,7 @@
       <div class="nav-user-area">
         ${isAdmin ? `<button type="button" class="btn btn-ghost btn-sm" id="navAdminBtn" style="border-color:var(--secondary);color:var(--secondary)">⚙️ ${t('navAdmin')}</button>` : ''}
         <div class="user-chip">
-          <div class="user-avatar">${currentUser.avatar || '👤'}</div>
+          <div class="user-avatar">${renderAvatarHtml(currentUser.avatar, 28)}</div>
           <div><strong style="display:block;line-height:1">${currentUser.name}</strong></div>
         </div>
         <button class="btn btn-ghost btn-sm" id="profileBtn">👤 ${lang === 'zh' ? '资料' : 'Profile'}</button>
@@ -2148,7 +2184,9 @@
       adminBtn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        renderAdminConsole(() => renderNavbar());
+        currentRoute = 'admin';
+        renderNavbar();
+        renderRoute();
       };
     }
 
@@ -2172,6 +2210,7 @@
     const currentUser = store.getCurrentUser();
     if (!currentUser) return;
     const perms = currentUser.permissions || [];
+    if (route === 'admin' && !isAdminUser(currentUser)) { alert(t('accessDenied')); return; }
     if (route === 'featA' && !perms.includes('A')) { alert(t('accessDenied')); return; }
     if (route === 'featB' && !perms.includes('B')) { alert(t('accessDenied')); return; }
     if (route === 'featC' && !perms.includes('C')) { alert(t('accessDenied')); return; }
@@ -2190,6 +2229,7 @@
     }
 
     if (currentRoute === 'home') renderHomePortal(container);
+    else if (currentRoute === 'admin') renderAdminConsole();
     else if (currentRoute === 'featA') renderFeatureA(container);
     else if (currentRoute === 'featB') renderFeatureB(container);
     else if (currentRoute === 'featC') renderFeatureC(container);
