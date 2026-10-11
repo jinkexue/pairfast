@@ -2076,8 +2076,7 @@
         gestureHandling: 'greedy',
         mapTypeControl: false,
         streetViewControl: false,
-        fullscreenControl: false,
-        restriction: { country: 'CA' }
+        fullscreenControl: false
       });
       const marker = new google.maps.Marker({
         map,
