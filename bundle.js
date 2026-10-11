@@ -2129,10 +2129,19 @@
         }
       });
 
-      const existingLat = Number(latInput.value || 0);
-      const existingLng = Number(lngInput.value || 0);
-      if (Number.isFinite(existingLat) && Number.isFinite(existingLng)) {
-        syncFromCoords(existingLat, existingLng);
+      const latText = (latInput.value || '').trim();
+      const lngText = (lngInput.value || '').trim();
+      if (latText !== '' && lngText !== '') {
+        const existingLat = Number(latText);
+        const existingLng = Number(lngText);
+        if (Number.isFinite(existingLat) && Number.isFinite(existingLng)) {
+          syncFromCoords(existingLat, existingLng);
+        }
+      } else {
+        const fallbackCenter = getCalgaryCenterFallback();
+        marker.setPosition(fallbackCenter);
+        map.panTo(fallbackCenter);
+        map.setZoom(11);
       }
     };
 
