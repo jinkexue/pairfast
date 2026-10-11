@@ -2900,6 +2900,18 @@
           : 'Set your commute and match with the right travel crew.'
       }
     ];
+
+    const renderHomeBMatchPreview = (m, idx) => {
+      const venue = getVenueById(m.venueId || '');
+      return `
+        <div style="display:flex;align-items:stretch;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:wrap">
+          <div style="flex:1.25;min-width:220px">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
+          <div style="flex:0.95;min-width:180px;display:flex;align-items:stretch">
+            ${venue ? renderVenueMapEmbed(venue, 'compact') : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px">📍 Venue map unavailable</div>'}
+          </div>
+        </div>
+      `;
+    };
     const visibleCards = isGuest ? moduleCards.filter(card => card.key === 'B') : moduleCards.filter(card => perms.includes(card.key));
 
     container.innerHTML = `
@@ -2920,11 +2932,7 @@
           const hubSummary = card.key === 'B' ? (
             previewMatches.length === 0
               ? (lang === 'zh' ? '暂无组局' : 'No groups yet')
-              : previewMatches.map((m, idx) => `
-                  <div style="margin-top:${idx === 0 ? '12px' : '10px'};">
-                    ${renderCompactMatchCard(m, store.getGames(), lang)}
-                  </div>
-                `).join('')
+              : previewMatches.map((m, idx) => renderHomeBMatchPreview(m, idx)).join('')
           ) : '';
           return `
             <div class="glass-panel feature-card">
