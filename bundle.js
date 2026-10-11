@@ -2101,43 +2101,42 @@
         if (event && event.latLng) syncFromCoords(event.latLng.lat(), event.latLng.lng());
       });
 
-      const useModernAutocomplete = !!(window.google && window.google.maps && window.google.maps.places && window.google.maps.places.PlaceAutocompleteElement);
-      if (useModernAutocomplete) {
-        const holder = document.createElement('div');
-        holder.style.width = '100%';
-        const widget = new google.maps.places.PlaceAutocompleteElement({
-          componentRestrictions: { country: 'CA' },
-          fields: ['geometry', 'formattedAddress', 'name']
-        });
-        const style = addressInput.getAttribute('style') || '';
-        widget.setAttribute('style', style || 'width:100%');
-        widget.setAttribute('placeholder', addressInput.placeholder || 'Search address');
-        addressInput.replaceWith(widget);
-        const updateFromPlace = (place) => {
-          if (!place || !place.geometry || !place.location) return;
-          const lat = place.location.lat();
-          const lng = place.location.lng();
-          const text = place.formattedAddress || place.name || '';
-          if (text) {
-            widget.value = text;
-          }
-          syncFromCoords(lat, lng);
-        };
-        widget.addEventListener('gmp-placechange', (event) => updateFromPlace(event.place));
-        return;
-      }
+      const geocodeAddress = async () => {
+        const q = addressInput.value.trim();
+        if (!q) return;
+        const key = store.getGoogleMapsApiKey();
+        if (!key) return;
 
-      const autocomplete = new google.maps.places.Autocomplete(addressInput, {
-        componentRestrictions: { country: 'ca' },
-        fields: ['geometry', 'formatted_address', 'name']
+        try {
+          const response = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${encodeURIComponent(key)}&region=CA&components=country:CA`);
+          const data = await response.json();
+          if (!data || data.status !== 'OK' || !Array.isArray(data.results) || !data.results[0]) {
+            console.warn('Geocoding failed:', data);
+            return;
+          }
+          const result = data.results[0];
+          const loc = result.geometry && result.geometry.location;
+          if (!loc) return;
+          const lat = Number(loc.lat);
+          const lng = Number(loc.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          addressInput.value = result.formatted_address || addressInput.value;
+          syncFromCoords(lat, lng);
+        } catch (err) {
+          console.warn('Address geocode failed:', err);
+        }
+      };
+
+      addressInput.addEventListener('keydown', async (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          await geocodeAddress();
+        }
       });
-      autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (!place || !place.geometry || !place.geometry.location) return;
-        const lat = place.geometry.location.lat();
-        const lng = place.geometry.location.lng();
-        addressInput.value = place.formatted_address || place.name || addressInput.value;
-        syncFromCoords(lat, lng);
+      addressInput.addEventListener('blur', async () => {
+        if (addressInput.value.trim()) {
+          await geocodeAddress();
+        }
       });
 
       const existingLat = Number(latInput.value || 0);
