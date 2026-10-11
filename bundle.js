@@ -593,13 +593,14 @@
         const slots = normalizeSlotList(pref && pref.slots ? pref.slots : []);
         const games = Array.from(new Set(pref && pref.gameIds ? pref.gameIds : []));
         const venueId = pref && pref.venueId ? pref.venueId : null;
+        if (!venueId) return;
         games.forEach(gameId => {
           slots.forEach(slotKey => {
             const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2})\|([0-9]{2}:[0-9]{2})$/.exec(String(slotKey));
             if (!m) return;
             const [, dayKey, timeStr] = m;
             const minute = timeToMinutes(timeStr);
-            const key = `${dayKey}___${gameId}___${venueId || 'all'}`;
+            const key = `${dayKey}___${gameId}___${venueId}`;
             if (!grouped[key]) grouped[key] = {};
             if (!grouped[key][userId]) grouped[key][userId] = new Set();
             grouped[key][userId].add(minute);
@@ -637,7 +638,7 @@
           if (members.length < 2) { block = []; return; }
           const startT = minutesToTime(block[0]);
           const endT = minutesToTime(block[block.length - 1] + 30);
-          const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${venueId || 'all'}___${members.join('_')}`;
+          const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${venueId}___${members.join('_')}`;
           if (seen.has(matchSlotKey)) { block = []; return; }
           seen.add(matchSlotKey);
 
@@ -654,7 +655,7 @@
             endT,
             durationMins: block.length * 30,
             gameId,
-            venueId: venueId || (existing && existing.venueId) || null,
+            venueId,
             userIds: members,
             confirmedUserIds,
             status: confirmedUserIds.length >= members.length ? 'confirmed' : 'pending'
@@ -1877,7 +1878,7 @@
         });
       });
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
         renderFeatureB(container);
       } catch (err) { alert(err.message); }
     };
@@ -1889,7 +1890,7 @@
         });
       });
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
         renderFeatureB(container);
       } catch (err) { alert(err.message); }
     };
@@ -1906,7 +1907,7 @@
           btn.classList.add('selected');
         }
         try {
-          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
         } catch (err) { alert(err.message); }
       };
     });
@@ -1923,7 +1924,7 @@
           card.classList.add('selected');
         }
         try {
-          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
         } catch (err) { alert(err.message); }
       };
     });
@@ -2002,6 +2003,7 @@
                 <div>
                   <strong>${v.name}</strong>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${v.address}</div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${Number(v.lat || 0).toFixed(4)}, ${Number(v.lng || 0).toFixed(4)}</div>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:4px">🧩 ${((v.supportedGameIds || []).map(id => (games.find(g => g.id === id) || { name: id }).name).join(', ') || '—')}</div>
                 </div>
                 <button class="btn btn-danger btn-sm del-venue-btn" data-id="${v.id}">Delete</button>
@@ -2012,7 +2014,10 @@
         <form id="addVenueForm" style="border-top:1px dashed var(--panel-border);padding-top:18px">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
             <input type="text" id="venueName" class="form-input" placeholder="Venue Name" required>
-            <input type="text" id="venueAddress" class="form-input" placeholder="Address" required>
+            <input type="text" id="venueAddress" class="form-input" placeholder="Search address or pick on map" required>
+          </div>
+          <div style="margin-bottom:12px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;">
+            <div id="venueMapPreview" style="width:100%;height:200px;background:rgba(255,255,255,0.02)"></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
             <input type="number" step="0.0001" id="venueLat" class="form-input" placeholder="Latitude">
@@ -2033,7 +2038,84 @@
         </form>
       </div>
     `;
+
+    const setLatLng = (lat, lng) => {
+      const latValue = Number(lat);
+      const lngValue = Number(lng);
+      const latInput = modal.querySelector('#venueLat');
+      const lngInput = modal.querySelector('#venueLng');
+      if (latInput) latInput.value = Number.isFinite(latValue) ? latValue.toFixed(5) : '';
+      if (lngInput) lngInput.value = Number.isFinite(lngValue) ? lngValue.toFixed(5) : '';
+    };
+
+    const attachVenueMapPicker = async () => {
+      const mapEl = modal.querySelector('#venueMapPreview');
+      const addressInput = modal.querySelector('#venueAddress');
+      const latInput = modal.querySelector('#venueLat');
+      const lngInput = modal.querySelector('#venueLng');
+      if (!mapEl || !addressInput || !latInput || !lngInput) return;
+      try {
+        await loadGoogleMapsScript();
+      } catch (err) {
+        console.warn('Google Maps unavailable for venue picker:', err);
+        return;
+      }
+      if (!window.google || !window.google.maps || !window.google.maps.places) return;
+
+      const defaultCenter = { lat: 51.0447, lng: -114.0719 };
+      const map = new google.maps.Map(mapEl, {
+        center: defaultCenter,
+        zoom: 11,
+        disableDefaultUI: true,
+        gestureHandling: 'greedy'
+      });
+      const marker = new google.maps.Marker({
+        map,
+        draggable: true,
+        position: defaultCenter
+      });
+
+      const syncFromCoords = (lat, lng) => {
+        const nextLat = Number(lat);
+        const nextLng = Number(lng);
+        if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return;
+        const pos = { lat: nextLat, lng: nextLng };
+        marker.setPosition(pos);
+        map.panTo(pos);
+        map.setZoom(15);
+        setLatLng(nextLat, nextLng);
+      };
+
+      google.maps.event.addListener(marker, 'dragend', () => {
+        const pos = marker.getPosition();
+        if (pos) syncFromCoords(pos.lat(), pos.lng());
+      });
+      google.maps.event.addListener(map, 'click', (event) => {
+        if (event && event.latLng) syncFromCoords(event.latLng.lat(), event.latLng.lng());
+      });
+
+      const autocomplete = new google.maps.places.Autocomplete(addressInput, {
+        componentRestrictions: { country: 'ca' },
+        fields: ['geometry', 'formatted_address', 'name']
+      });
+      autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        if (!place || !place.geometry || !place.geometry.location) return;
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        addressInput.value = place.formatted_address || place.name || addressInput.value;
+        syncFromCoords(lat, lng);
+      });
+
+      const existingLat = Number(latInput.value || 0);
+      const existingLng = Number(lngInput.value || 0);
+      if (Number.isFinite(existingLat) && Number.isFinite(existingLng)) {
+        syncFromCoords(existingLat, existingLng);
+      }
+    };
+
     modal.classList.add('active');
+    attachVenueMapPicker();
     document.getElementById('closeVenueModalBtn').onclick = () => modal.classList.remove('active');
     modal.querySelectorAll('.del-venue-btn').forEach(btn => {
       btn.onclick = async () => {
