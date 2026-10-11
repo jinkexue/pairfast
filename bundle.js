@@ -60,7 +60,13 @@
       applyTimeRangeBtn: "Generate Time Slots",
       clearSlots: "Clear All Slots",
       selectGamesLabel: "Select Activity Categories (Multiple):",
+      venueSelectLabel: "Select Activity Venue (Optional):",
+      venueMapLabel: "Venue Map",
+      noVenueSelected: "No venue selected",
       manageCategoriesBtn: "Manage Categories (Admin)",
+      manageVenuesBtn: "Manage Venues (Admin)",
+      googleMapsApiKeyLabel: "Google Maps API Key",
+      googleMapsApiKeyHelp: "Stored in app settings, not in source code.",
       savePrefBtn: "Save Availability & Activity Choices",
       b2Title: "Auto Match",
       b2Sub: "Auto pre-matched sessions based on continuous time intersection & identical activity choice.",
@@ -174,7 +180,13 @@
       applyTimeRangeBtn: "生成时间段范围",
       clearSlots: "清空当前已选",
       selectGamesLabel: "选择活动/运动种类（可多选）：",
+      venueSelectLabel: "选择活动场地（可选）：",
+      venueMapLabel: "场地地图",
+      noVenueSelected: "未选择场地",
       manageCategoriesBtn: "管理活动种类 (管理员专用)",
+      manageVenuesBtn: "管理活动场地 (管理员专用)",
+      googleMapsApiKeyLabel: "Google Maps API Key",
+      googleMapsApiKeyHelp: "仅保存在应用设置中，不会出现在源代码明文里。",
       savePrefBtn: "保存我的时间与活动设置",
       b2Title: "自动匹配 (B2)",
       b2Sub: "系统自动提取同项目用户的连续交集时间段打包合并为组局场次。",
@@ -295,7 +307,20 @@
         gameMatches: [],
         carpoolProfiles: {},
         carpoolMatches: [],
-        feedback: []
+        feedback: [],
+        activityVenues: [
+          {
+            id: 'v_default_calgary_pickleball',
+            name: 'Calgary Pickleball Center',
+            address: '1145 65 Ave NE, Calgary, AB T2E 8T9',
+            lat: 51.1036,
+            lng: -114.0369,
+            supportedGameIds: ['g1', 'g2']
+          }
+        ],
+        settings: {
+          googleMapsApiKey: ''
+        }
       };
       this._loadSession();
     }
@@ -326,17 +351,47 @@
       this.data.users = remote.users || [];
       this.data.games = remote.games || [];
       this.data.userGamePreferences = {};
-      (remote.userGamePreferences || {}).forEach ? null : null;
       Object.entries(remote.userGamePreferences || {}).forEach(([userId, pref]) => {
         this.data.userGamePreferences[userId] = {
           slots: normalizeSlotList(pref && pref.slots ? pref.slots : []),
-          gameIds: Array.from(new Set((pref && pref.gameIds) || []))
+          gameIds: Array.from(new Set((pref && pref.gameIds) || [])),
+          venueId: pref && pref.venueId ? pref.venueId : null
         };
       });
       this.data.carpoolProfiles = remote.carpoolProfiles || {};
       this.data.carpoolMatches = remote.carpoolMatches || [];
       this.data.gameMatches = remote.gameMatches || [];
       this.data.feedback = remote.feedback || [];
+      this.data.activityVenues = Array.isArray(remote.activityVenues) && remote.activityVenues.length
+        ? remote.activityVenues
+        : [
+            {
+              id: 'v_default_calgary_pickleball',
+              name: 'Calgary Pickleball Center',
+              address: '1145 65 Ave NE, Calgary, AB T2E 8T9',
+              lat: 51.1036,
+              lng: -114.0369,
+              supportedGameIds: ['g1', 'g2']
+            }
+          ];
+      this.data.settings = {
+        ...(this.data.settings || {}),
+        ...(remote.settings || {})
+      };
+      this.data.activityVenues = Array.isArray(remote.activityVenues) && remote.activityVenues.length
+        ? remote.activityVenues
+        : (this.data.activityVenues && this.data.activityVenues.length ? this.data.activityVenues : [{
+            id: 'v_default_calgary_pickleball',
+            name: 'Calgary Pickleball Center',
+            address: '1145 65 Ave NE, Calgary, AB T2E 8T9',
+            lat: 51.1036,
+            lng: -114.0369,
+            supportedGameIds: ['g1', 'g2']
+          }]);
+      this.data.settings = {
+        ...(this.data.settings || {}),
+        ...(remote.settings || {})
+      };
       // Normalize pickleball icon client-side if DB still has ping-pong emoji
       this.data.games = this.data.games.map(g => {
         const n = (g.name || '').toLowerCase();
@@ -432,6 +487,65 @@
 
     getGames() { return this.data.games; }
 
+    getActivityVenues() { return this.data.activityVenues || []; }
+
+    getActivityVenue(venueId) {
+      return (this.data.activityVenues || []).find(v => v.id === venueId) || null;
+    }
+
+    getGoogleMapsApiKey() {
+      const configured = this.data.settings && this.data.settings.googleMapsApiKey ? this.data.settings.googleMapsApiKey : '';
+      if (configured) return configured;
+      const globalCfg = window && window.__SOCIALPAIR_CONFIG__ ? window.__SOCIALPAIR_CONFIG__.googleMapsApiKey : '';
+      return globalCfg || '';
+    }
+
+    async saveGoogleMapsApiKey(apiKey) {
+      this.data.settings = { ...(this.data.settings || {}), googleMapsApiKey: String(apiKey || '').trim() };
+      try {
+        await api('settings', {
+          method: 'PUT',
+          body: JSON.stringify({ googleMapsApiKey: this.data.settings.googleMapsApiKey })
+        });
+      } catch (err) {
+        console.warn('Settings sync failed:', err);
+      }
+      return this.data.settings.googleMapsApiKey;
+    }
+
+    async addActivityVenue(venue) {
+      const newVenue = {
+        id: venue.id || 'v_' + Date.now().toString(36),
+        name: venue.name || 'New Activity Venue',
+        address: venue.address || '',
+        lat: Number(venue.lat) || 0,
+        lng: Number(venue.lng) || 0,
+        supportedGameIds: Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : []
+      };
+      this.data.activityVenues = [...(this.data.activityVenues || []), newVenue];
+      try {
+        await api('activity-venues', {
+          method: 'PUT',
+          body: JSON.stringify({ venues: this.data.activityVenues })
+        });
+      } catch (err) {
+        console.warn('Venue sync failed:', err);
+      }
+      return newVenue;
+    }
+
+    async deleteActivityVenue(venueId) {
+      this.data.activityVenues = (this.data.activityVenues || []).filter(v => v.id !== venueId);
+      try {
+        await api('activity-venues', {
+          method: 'PUT',
+          body: JSON.stringify({ venues: this.data.activityVenues })
+        });
+      } catch (err) {
+        console.warn('Venue sync failed:', err);
+      }
+    }
+
     async addGame(gameObj) {
       const res = await api('games', {
         method: 'POST',
@@ -449,16 +563,26 @@
     }
 
     getUserGamePref(userId) {
-      return this.data.userGamePreferences[userId] || { slots: [], gameIds: [] };
+      const pref = this.data.userGamePreferences[userId] || { slots: [], gameIds: [] };
+      return {
+        slots: normalizeSlotList(pref.slots || []),
+        gameIds: Array.from(new Set(pref.gameIds || [])),
+        venueId: pref.venueId || null
+      };
     }
 
-    async saveUserGamePref(userId, slots, gameIds) {
+    async saveUserGamePref(userId, slots, gameIds, venueId = null) {
       const normalizedSlots = normalizeSlotList(slots);
       const normalizedGames = Array.from(new Set(gameIds || []));
-      this.data.userGamePreferences[userId] = { slots: normalizedSlots, gameIds: normalizedGames };
+      const normalizedVenueId = venueId || null;
+      this.data.userGamePreferences[userId] = {
+        slots: normalizedSlots,
+        gameIds: normalizedGames,
+        venueId: normalizedVenueId
+      };
       await api('preferences/' + userId, {
         method: 'PUT',
-        body: JSON.stringify({ slots: normalizedSlots, gameIds: normalizedGames })
+        body: JSON.stringify({ slots: normalizedSlots, gameIds: normalizedGames, venueId: normalizedVenueId })
       });
       await this.autoGenerateGameMatches();
     }
@@ -468,13 +592,14 @@
       Object.entries(this.data.userGamePreferences).forEach(([userId, pref]) => {
         const slots = normalizeSlotList(pref && pref.slots ? pref.slots : []);
         const games = Array.from(new Set(pref && pref.gameIds ? pref.gameIds : []));
+        const venueId = pref && pref.venueId ? pref.venueId : null;
         games.forEach(gameId => {
           slots.forEach(slotKey => {
             const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2})\|([0-9]{2}:[0-9]{2})$/.exec(String(slotKey));
             if (!m) return;
             const [, dayKey, timeStr] = m;
             const minute = timeToMinutes(timeStr);
-            const key = `${dayKey}___${gameId}`;
+            const key = `${dayKey}___${gameId}___${venueId || 'all'}`;
             if (!grouped[key]) grouped[key] = {};
             if (!grouped[key][userId]) grouped[key][userId] = new Set();
             grouped[key][userId].add(minute);
@@ -488,7 +613,10 @@
         const userIds = Object.keys(userMinuteMap).filter(u => userMinuteMap[u] && userMinuteMap[u].size);
         if (userIds.length < 2) return;
 
-        const [dayKey, gameId] = mapKey.split('___');
+        const parts = mapKey.split('___');
+        const dayKey = parts[0];
+        const gameId = parts[1];
+        const venueId = parts[2] || null;
         const minuteToUsers = new Map();
         userIds.forEach(u => {
           userMinuteMap[u].forEach(minute => {
@@ -509,7 +637,7 @@
           if (members.length < 2) { block = []; return; }
           const startT = minutesToTime(block[0]);
           const endT = minutesToTime(block[block.length - 1] + 30);
-          const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${members.join('_')}`;
+          const matchSlotKey = `${dayKey}___${startT}-${endT}___${gameId}___${venueId || 'all'}___${members.join('_')}`;
           if (seen.has(matchSlotKey)) { block = []; return; }
           seen.add(matchSlotKey);
 
@@ -526,6 +654,7 @@
             endT,
             durationMins: block.length * 30,
             gameId,
+            venueId: venueId || (existing && existing.venueId) || null,
             userIds: members,
             confirmedUserIds,
             status: confirmedUserIds.length >= members.length ? 'confirmed' : 'pending'
@@ -850,6 +979,7 @@
     };
     const container = document.getElementById('appContent');
     if (!container) return;
+    const googleMapsApiKey = store.getGoogleMapsApiKey();
 
     container.innerHTML = `
       <div class="admin-panel-shell">
@@ -864,7 +994,20 @@
           </div>
           <div style="padding:20px 24px 0;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
             <div class="admin-panel-meta">Admin overview • ${users.length} users</div>
-            <button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <button class="btn btn-secondary btn-sm" id="addNewUserBtn">${t('addUserBtn')}</button>
+              <button class="btn btn-ghost btn-sm" id="adminVenueBtn">${t('manageVenuesBtn')}</button>
+            </div>
+          </div>
+          <div style="padding:20px 24px 0">
+            <div class="glass-panel" style="padding:16px;border:1px solid rgba(99,102,241,0.2);background:rgba(99,102,241,0.08)">
+              <div style="font-size:12px;font-weight:800;color:#a5b4fc;margin-bottom:8px">${t('googleMapsApiKeyLabel')}</div>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <input id="adminGoogleMapsKeyInput" class="form-input" type="text" value="${googleMapsApiKey}" placeholder="AIza..." style="min-width:260px;flex:1;max-width:480px">
+                <button class="btn btn-secondary btn-sm" id="saveGoogleMapsKeyBtn">Save</button>
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:8px">${t('googleMapsApiKeyHelp')}</div>
+            </div>
           </div>
           <div style="padding:20px 24px 8px;overflow-x:auto;">
             <table class="data-table admin-table">
@@ -910,6 +1053,22 @@
     if (closeBtn) closeBtn.onclick = () => { currentRoute = 'home'; renderNavbar(); renderRoute(); };
     const addBtn = document.getElementById('addNewUserBtn');
     if (addBtn) addBtn.onclick = () => { renderUserEditModal(null, () => { renderAdminConsole(onUpdate); if (onUpdate) onUpdate(); }); };
+    const venueBtn = document.getElementById('adminVenueBtn');
+    if (venueBtn) venueBtn.onclick = () => renderActivityVenueModal(() => renderAdminConsole(onUpdate));
+    const saveKeyBtn = document.getElementById('saveGoogleMapsKeyBtn');
+    if (saveKeyBtn) {
+      saveKeyBtn.onclick = async () => {
+        const input = document.getElementById('adminGoogleMapsKeyInput');
+        if (!input) return;
+        try {
+          const apiKey = await store.saveGoogleMapsApiKey(input.value);
+          if (apiKey) {
+            await loadGoogleMapsScript();
+          }
+          if (onUpdate) onUpdate();
+        } catch (err) { alert(err.message); }
+      };
+    }
     container.querySelectorAll('.edit-user-btn').forEach(btn => {
       btn.onclick = () => {
         const userObj = users.find(u => u.id === btn.dataset.id);
@@ -1431,6 +1590,36 @@
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   }
 
+  function getVenueById(venueId) {
+    return (store.getActivityVenues() || []).find(v => v.id === venueId) || null;
+  }
+
+  function isVenueGameSupported(venueId, gameId) {
+    if (!venueId) return true;
+    const venue = getVenueById(venueId);
+    if (!venue) return true;
+    const support = Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : [];
+    return support.length === 0 || support.includes(gameId);
+  }
+
+  function renderVenueMapEmbed(venue, sizeLabel) {
+    if (!venue || !venue.address) return '<span style="color:var(--text-muted)">📍 No venue mapped</span>';
+    const query = encodeURIComponent(`${venue.name || venue.address} ${venue.address}`);
+    return `
+      <div style="margin-top:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)">
+        <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:12px;color:var(--text-muted)">
+          📍 ${venue.name} · ${venue.address}
+        </div>
+        <iframe
+          title="${venue.name} map"
+          src="https://www.google.com/maps?q=${query}&output=embed"
+          style="width:100%;height:${sizeLabel === 'compact' ? '150px' : '220px'};border:0;display:block;filter:grayscale(0.2) contrast(1.1);"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+    `;
+  }
+
   function renderFeatureB(container) {
     const currentUser = store.getCurrentUser();
     if (!currentUser) return;
@@ -1439,11 +1628,14 @@
 
     const userPref = store.getUserGamePref(currentUser.id);
     const games = store.getGames();
+    const venues = store.getActivityVenues();
     const matches = store.getGameMatches();
     const lang = getLang();
 
     const selectedSlots = new Set(normalizeSlotList(userPref.slots || []));
     const selectedGames = new Set(Array.from(new Set(userPref.gameIds || [])));
+    const selectedVenueId = userPref.venueId || '';
+    const visibleGames = selectedVenueId ? games.filter(g => isVenueGameSupported(selectedVenueId, g.id)) : games;
 
     const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
     const upcomingMatches = matches.filter(m => !isMatchPast(m));
@@ -1521,10 +1713,21 @@
             </div>
           </div>
 
+          <div style="margin-bottom:20px">
+            <label class="form-group label">${t('venueSelectLabel')}</label>
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <select id="venueSelect" class="form-select" style="min-width:260px">
+                <option value="">${t('noVenueSelected')}</option>
+                ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
+              </select>
+              ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
+            </div>
+          </div>
+
           <div style="margin-bottom:24px">
             <label class="form-group label">${t('selectGamesLabel')}</label>
             <div class="game-picker-grid">
-              ${games.map(g => {
+              ${visibleGames.map(g => {
                 const isSel = selectedGames.has(g.id);
                 return `
                   <div class="game-item-card ${isSel ? 'selected' : ''}" data-id="${g.id}">
@@ -1535,6 +1738,13 @@
               }).join('')}
             </div>
           </div>
+
+          ${selectedVenueId ? `
+            <div style="margin-bottom:20px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">${t('venueMapLabel')}</div>
+              ${renderVenueMapEmbed(getVenueById(selectedVenueId), 'wide')}
+            </div>
+          ` : ''}
 
           <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px">
             <span id="saveFeedbackB" style="color:var(--success);font-weight:700;font-size:14px;display:none">✓ ${t('successMsg')}</span>
@@ -1563,7 +1773,15 @@
               <span>${pastHubExpanded ? t('hidePast') : t('showPast')}</span>
             </button>
             <div class="hub-section-body ${pastHubExpanded ? '' : 'collapsed'}" id="pastHubBody">
-              ${pastMatches.map(m => renderMatchCard(m, games, currentUser, lang)).join('')}
+              ${pastMatches.map(m => {
+                const venue = getVenueById(m.venueId || selectedVenueId || '');
+                return `
+                  <div class="match-card-wrap">
+                    ${renderMatchCard(m, games, currentUser, lang)}
+                    ${venue ? renderVenueMapEmbed(venue, 'compact') : ''}
+                  </div>
+                `;
+              }).join('')}
             </div>
           ` : ''}
         </div>
@@ -1574,6 +1792,25 @@
     const tabB2 = container.querySelector('#tabB2');
     tabB1.onclick = () => { activeSubTabB = 'viewB1'; renderFeatureB(container); };
     tabB2.onclick = () => { activeSubTabB = 'viewB2'; renderFeatureB(container); };
+
+    const venueSelect = container.querySelector('#venueSelect');
+    if (venueSelect) {
+      venueSelect.onchange = async () => {
+        const nextVenueId = venueSelect.value || null;
+        const nextGames = Array.from(selectedGames).filter(gid => isVenueGameSupported(nextVenueId, gid));
+        selectedGames.clear();
+        nextGames.forEach(gid => selectedGames.add(gid));
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), nextVenueId);
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
+      };
+    }
+
+    const manageVenuesBtn = container.querySelector('#manageVenuesBtn');
+    if (manageVenuesBtn) {
+      manageVenuesBtn.onclick = () => renderActivityVenueModal(() => renderFeatureB(container));
+    }
 
     container.querySelector('#setThisWeekBtn').onclick = () => {
       activeWeek = 'this';
@@ -1692,12 +1929,13 @@
     });
 
     container.querySelector('#savePrefBtn').onclick = async () => {
-      if (!selectedGames || selectedGames.size === 0) {
+      const filteredGames = Array.from(selectedGames).filter(gid => isVenueGameSupported(selectedVenueId, gid));
+      if (!filteredGames || filteredGames.length === 0) {
         alert('Please select at least one activity category before saving your availability.');
         return;
       }
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames));
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), filteredGames, selectedVenueId || null);
         const fb = container.querySelector('#saveFeedbackB');
         if (fb) {
           fb.style.display = 'inline-block';
@@ -1742,6 +1980,81 @@
 
     const manageBtn = container.querySelector('#manageCategoriesBtn');
     if (manageBtn) manageBtn.onclick = () => renderGameCategoryModal(() => renderFeatureB(container));
+  }
+
+  function renderActivityVenueModal(onSaved) {
+    let modal = document.getElementById('activityVenueModal');
+    if (!modal) {
+      modal = document.createElement('div'); modal.id = 'activityVenueModal'; modal.className = 'modal-overlay'; document.body.appendChild(modal);
+    }
+    const venues = store.getActivityVenues();
+    const games = store.getGames();
+    modal.innerHTML = `
+      <div class="glass-panel modal-box" style="width:min(100%, 860px)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+          <h3 style="font-size:20px;font-weight:800">${t('manageVenuesBtn')}</h3>
+          <button class="btn btn-ghost btn-sm" id="closeVenueModalBtn">✕</button>
+        </div>
+        <div style="margin-bottom:18px;max-height:220px;overflow-y:auto;display:grid;gap:10px">
+          ${venues.map(v => `
+            <div style="padding:12px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;background:rgba(255,255,255,0.03)">
+              <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+                <div>
+                  <strong>${v.name}</strong>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${v.address}</div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">🧩 ${((v.supportedGameIds || []).map(id => (games.find(g => g.id === id) || { name: id }).name).join(', ') || '—')}</div>
+                </div>
+                <button class="btn btn-danger btn-sm del-venue-btn" data-id="${v.id}">Delete</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <form id="addVenueForm" style="border-top:1px dashed var(--panel-border);padding-top:18px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <input type="text" id="venueName" class="form-input" placeholder="Venue Name" required>
+            <input type="text" id="venueAddress" class="form-input" placeholder="Address" required>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <input type="number" step="0.0001" id="venueLat" class="form-input" placeholder="Latitude">
+            <input type="number" step="0.0001" id="venueLng" class="form-input" placeholder="Longitude">
+          </div>
+          <div style="margin-bottom:14px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Supported Activity Categories</div>
+            <div class="perm-options" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">
+              ${games.map(g => `
+                <label class="perm-checkbox" style="padding:6px 10px;">
+                  <input type="checkbox" name="venueGame" value="${g.id}">
+                  <span>${g.name}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+          <button type="submit" class="btn btn-secondary" style="width:100%">Add Venue</button>
+        </form>
+      </div>
+    `;
+    modal.classList.add('active');
+    document.getElementById('closeVenueModalBtn').onclick = () => modal.classList.remove('active');
+    modal.querySelectorAll('.del-venue-btn').forEach(btn => {
+      btn.onclick = async () => {
+        await store.deleteActivityVenue(btn.dataset.id);
+        renderActivityVenueModal(onSaved);
+        if (onSaved) onSaved();
+      };
+    });
+    document.getElementById('addVenueForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const selected = Array.from(modal.querySelectorAll('input[name="venueGame"]:checked')).map(el => el.value);
+      await store.addActivityVenue({
+        name: document.getElementById('venueName').value.trim(),
+        address: document.getElementById('venueAddress').value.trim(),
+        lat: Number(document.getElementById('venueLat').value || 0),
+        lng: Number(document.getElementById('venueLng').value || 0),
+        supportedGameIds: selected
+      });
+      renderActivityVenueModal(onSaved);
+      if (onSaved) onSaved();
+    };
   }
 
   function renderGameCategoryModal(onSaved) {
@@ -1800,6 +2113,42 @@
   // --------------------------------------------------------------------------
   let gMapInstance = null;
   let activeSubTabC = 'viewC2';
+
+  function loadGoogleMapsScript() {
+    if (window.google && window.google.maps) return Promise.resolve();
+    const apiKey = store.getGoogleMapsApiKey();
+    if (!apiKey) return Promise.resolve();
+    const existing = document.getElementById('googleMapsScript');
+    if (existing) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.id = 'googleMapsScript';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Google Maps script.'));
+      document.head.appendChild(script);
+    });
+  }
+
+  function initVenueAutocomplete(inputId, setLatLng) {
+    if (!window.google || !window.google.maps || !window.google.maps.places) return;
+    const inputEl = document.getElementById(inputId);
+    if (!inputEl) return;
+    const autocomplete = new google.maps.places.Autocomplete(inputEl, {
+      componentRestrictions: { country: 'ca' },
+      fields: ['geometry', 'name', 'formatted_address']
+    });
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (place && place.geometry && place.geometry.location) {
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        if (typeof setLatLng === 'function') setLatLng(lat, lng);
+      }
+    });
+  }
 
   function renderFeatureC(container) {
     const currentUser = store.getCurrentUser();
@@ -2027,15 +2376,20 @@
   }
 
   function initGooglePlacesAutocomplete() {
-    setTimeout(() => {
+    setTimeout(async () => {
       const inputEl = document.getElementById('cpAddressName');
-      if (!inputEl || !window.google || !window.google.maps || !window.google.maps.places) return;
-
+      if (!inputEl) return;
+      try {
+        await loadGoogleMapsScript();
+      } catch (err) {
+        console.warn(err);
+        return;
+      }
+      if (!window.google || !window.google.maps || !window.google.maps.places) return;
       const autocomplete = new google.maps.places.Autocomplete(inputEl, {
         componentRestrictions: { country: 'ca' },
         fields: ['geometry', 'name', 'formatted_address']
       });
-
       autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
         if (place && place.geometry && place.geometry.location) {

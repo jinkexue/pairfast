@@ -68,7 +68,20 @@ export function mapGame(row) {
 export function mapPref(row) {
   return {
     slots: parseJsonField(row.slots, []),
-    gameIds: parseJsonField(row.game_ids, [])
+    gameIds: parseJsonField(row.game_ids, []),
+    venueId: row.venue_id || null
+  };
+}
+
+export function mapActivityVenue(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    lat: Number(row.lat || 0),
+    lng: Number(row.lng || 0),
+    supportedGameIds: parseJsonField(row.supported_game_ids, [])
   };
 }
 
@@ -185,6 +198,45 @@ export async function ensureUsersTableSchema(db) {
   } catch (_) {
     // Column already exists.
   }
+}
+
+export async function ensureUserPreferencesTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY,
+      slots TEXT NOT NULL DEFAULT '[]',
+      game_ids TEXT NOT NULL DEFAULT '[]',
+      venue_id TEXT NULL
+    )
+  `).run();
+
+  try {
+    await db.prepare('ALTER TABLE user_preferences ADD COLUMN venue_id TEXT').run();
+  } catch (_) {
+    // Column already exists.
+  }
+}
+
+export async function ensureSettingsTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
+    )
+  `).run();
+}
+
+export async function ensureActivityVenuesTable(db) {
+  await db.prepare(`
+    CREATE TABLE IF NOT EXISTS activity_venues (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      address TEXT NOT NULL,
+      lat REAL NOT NULL DEFAULT 0,
+      lng REAL NOT NULL DEFAULT 0,
+      supported_game_ids TEXT NOT NULL DEFAULT '[]'
+    )
+  `).run();
 }
 
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -432,10 +484,13 @@ export async function ensurePickleballIcon(db) {
 export async function loadBootstrap(db, authUser) {
   await ensureMatchSchema(db);
   await ensureFeedbackTable(db);
+  await ensureUserPreferencesTable(db);
+  await ensureSettingsTable(db);
+  await ensureActivityVenuesTable(db);
   await ensurePickleballIcon(db);
   const isAdmin = !!(authUser && authUser.role === 'admin');
 
-  const [usersRes, gamesRes, prefsRes, profilesRes, cpMatchesRes, gameMatchesRes, feedbackRes] = await Promise.all([
+  const [usersRes, gamesRes, prefsRes, profilesRes, cpMatchesRes, gameMatchesRes, feedbackRes, settingsRes, venuesRes] = await Promise.all([
     db.prepare('SELECT * FROM users ORDER BY id').all(),
     db.prepare('SELECT * FROM games ORDER BY id').all(),
     db.prepare('SELECT * FROM user_preferences').all(),
@@ -444,7 +499,9 @@ export async function loadBootstrap(db, authUser) {
     db.prepare('SELECT * FROM game_matches ORDER BY day_key, start_t').all(),
     isAdmin
       ? db.prepare('SELECT * FROM feedback ORDER BY created_at DESC LIMIT 200').all()
-      : Promise.resolve({ results: [] })
+      : Promise.resolve({ results: [] }),
+    db.prepare('SELECT * FROM settings').all(),
+    db.prepare('SELECT * FROM activity_venues ORDER BY name').all()
   ]);
 
   const userGamePreferences = {};
@@ -457,6 +514,11 @@ export async function loadBootstrap(db, authUser) {
     carpoolProfiles[row.user_id] = mapCarpoolProfile(row);
   });
 
+  const settings = {};
+  for (const row of settingsRes.results || []) {
+    settings[row.key] = row.value;
+  }
+
   return {
     authUser,
     users: (usersRes.results || []).map(mapUser),
@@ -465,6 +527,8 @@ export async function loadBootstrap(db, authUser) {
     carpoolProfiles,
     carpoolMatches: (cpMatchesRes.results || []).map(mapCarpoolMatch),
     gameMatches: (gameMatchesRes.results || []).map(mapGameMatch),
-    feedback: (feedbackRes.results || []).map(mapFeedback)
+    feedback: (feedbackRes.results || []).map(mapFeedback),
+    settings,
+    activityVenues: (venuesRes.results || []).map(mapActivityVenue).filter(Boolean)
   };
 }

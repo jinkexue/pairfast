@@ -153,15 +153,72 @@ export async function onRequest(context) {
       if (!authUser || (authUser.role !== 'admin' && authUser.id !== id)) return json({ error: 'Forbidden' }, 403);
       const slots = JSON.stringify(body.slots || []);
       const gameIds = JSON.stringify(body.gameIds || []);
+      const venueId = body.venueId || null;
       await db
         .prepare(`
-          INSERT INTO user_preferences (user_id, slots, game_ids) VALUES (?, ?, ?)
-          ON CONFLICT(user_id) DO UPDATE SET slots = excluded.slots, game_ids = excluded.game_ids
+          INSERT INTO user_preferences (user_id, slots, game_ids, venue_id) VALUES (?, ?, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET slots = excluded.slots, game_ids = excluded.game_ids, venue_id = excluded.venue_id
         `)
-        .bind(id, slots, gameIds)
+        .bind(id, slots, gameIds, venueId)
         .run();
       await recomputeGameMatches(db, new Date().toISOString().slice(0, 10));
-      return json({ ok: true, slots: body.slots || [], gameIds: body.gameIds || [] });
+      return json({ ok: true, slots: body.slots || [], gameIds: body.gameIds || [], venueId });
+    }
+
+    // /api/settings
+    if (resource === 'settings') {
+      const authUser = await getAuthUser(db, request);
+      if (method === 'GET') {
+        return json({ settings: {} });
+      }
+      if (method === 'PUT') {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+        const body = await readJson(request) || {};
+        const settings = body.settings || body;
+        const entries = Object.entries(settings || {}).filter(([, value]) => value !== undefined && value !== null);
+        for (const [key, value] of entries) {
+          await db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+            .bind(key, String(value))
+            .run();
+        }
+        return json({ ok: true, settings });
+      }
+    }
+
+    // /api/activity-venues
+    if (resource === 'activity-venues') {
+      const authUser = await getAuthUser(db, request);
+      if (method === 'GET') {
+        const res = await db.prepare('SELECT * FROM activity_venues ORDER BY name').all();
+        return json({ activityVenues: (res.results || []).map((row) => ({
+          id: row.id,
+          name: row.name,
+          address: row.address,
+          lat: Number(row.lat || 0),
+          lng: Number(row.lng || 0),
+          supportedGameIds: JSON.parse(row.supported_game_ids || '[]')
+        })) });
+      }
+      if (method === 'PUT') {
+        if (!authUser || authUser.role !== 'admin') return json({ error: 'Forbidden' }, 403);
+        const body = await readJson(request) || {};
+        const venues = Array.isArray(body.venues) ? body.venues : [];
+        await db.prepare('DELETE FROM activity_venues').run();
+        for (const venue of venues) {
+          await db.prepare(`
+            INSERT INTO activity_venues (id, name, address, lat, lng, supported_game_ids)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).bind(
+            venue.id || ('v_' + Date.now().toString(36)),
+            venue.name || 'Venue',
+            venue.address || '',
+            Number(venue.lat) || 0,
+            Number(venue.lng) || 0,
+            JSON.stringify(Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : [])
+          ).run();
+        }
+        return json({ ok: true, activityVenues: venues });
+      }
     }
 
     // /api/game-matches
