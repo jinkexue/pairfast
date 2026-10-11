@@ -2064,16 +2064,20 @@
       </div>
     `;
 
-    const setLatLng = (lat, lng) => {
-      const latValue = Number(lat);
-      const lngValue = Number(lng);
-      const latInput = modal.querySelector('#venueLat');
-      const lngInput = modal.querySelector('#venueLng');
-      if (latInput) latInput.value = Number.isFinite(latValue) ? latValue.toFixed(6) : '';
-      if (lngInput) lngInput.value = Number.isFinite(lngValue) ? lngValue.toFixed(6) : '';
+    const attachVenueMapPicker = async () => {
+      const mapEl = modal.querySelector('#venueMapPreview');
+      const addressInput = modal.querySelector('#venueAddress');
       const latInput = modal.querySelector('#venueLat');
       const lngInput = modal.querySelector('#venueLng');
       if (!mapEl || !addressInput || !latInput || !lngInput) return;
+
+      const setLatLng = (lat, lng) => {
+        const latValue = Number(lat);
+        const lngValue = Number(lng);
+        if (latInput) latInput.value = Number.isFinite(latValue) ? latValue.toFixed(6) : '';
+        if (lngInput) lngInput.value = Number.isFinite(lngValue) ? lngValue.toFixed(6) : '';
+      };
+
       try {
         await loadGoogleMapsScript();
         await waitForGooglePlacesReady();
