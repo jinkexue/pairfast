@@ -2056,15 +2056,13 @@
       if (!mapEl || !addressInput || !latInput || !lngInput) return;
       try {
         await loadGoogleMapsScript();
+        await waitForGooglePlacesReady();
       } catch (err) {
         console.warn('Google Maps unavailable for venue picker:', err);
-        return;
-      }
-      if (!window.google || !window.google.maps || !window.google.maps.places) {
         const warn = document.createElement('div');
-        warn.textContent = 'Places autocomplete is disabled. Enable Places API (New) and Maps JavaScript API in Google Cloud, then refresh the page.';
+        warn.textContent = err.message || 'Places autocomplete is disabled. Enable Places API (New) and Maps JavaScript API in Google Cloud, then refresh the page.';
         warn.style.cssText = 'padding:8px 10px;font-size:12px;color:#fca5a5;background:rgba(127,29,29,0.45);border:1px solid rgba(248,113,113,0.45);border-radius:8px;margin-top:8px;';
-        mapEl.parentElement.appendChild(warn);
+        if (mapEl && mapEl.parentElement) mapEl.parentElement.appendChild(warn);
         return;
       }
 
@@ -2102,6 +2100,32 @@
       google.maps.event.addListener(map, 'click', (event) => {
         if (event && event.latLng) syncFromCoords(event.latLng.lat(), event.latLng.lng());
       });
+
+      const useModernAutocomplete = !!(window.google && window.google.maps && window.google.maps.places && window.google.maps.places.PlaceAutocompleteElement);
+      if (useModernAutocomplete) {
+        const holder = document.createElement('div');
+        holder.style.width = '100%';
+        const widget = new google.maps.places.PlaceAutocompleteElement({
+          componentRestrictions: { country: 'CA' },
+          fields: ['geometry', 'formattedAddress', 'name']
+        });
+        const style = addressInput.getAttribute('style') || '';
+        widget.setAttribute('style', style || 'width:100%');
+        widget.setAttribute('placeholder', addressInput.placeholder || 'Search address');
+        addressInput.replaceWith(widget);
+        const updateFromPlace = (place) => {
+          if (!place || !place.geometry || !place.location) return;
+          const lat = place.location.lat();
+          const lng = place.location.lng();
+          const text = place.formattedAddress || place.name || '';
+          if (text) {
+            widget.value = text;
+          }
+          syncFromCoords(lat, lng);
+        };
+        widget.addEventListener('gmp-placechange', (event) => updateFromPlace(event.place));
+        return;
+      }
 
       const autocomplete = new google.maps.places.Autocomplete(addressInput, {
         componentRestrictions: { country: 'ca' },
@@ -2205,22 +2229,18 @@
   let gMapInstance = null;
   let activeSubTabC = 'viewC2';
 
+  let googleMapsLoadPromise = null;
+
   function loadGoogleMapsScript() {
     const apiKey = store.getGoogleMapsApiKey();
     if (!apiKey) return Promise.resolve();
+    if (window.google && window.google.maps) return Promise.resolve();
+    if (googleMapsLoadPromise) return googleMapsLoadPromise;
 
     const legacyScripts = Array.from(document.querySelectorAll('script[src*="maps.googleapis.com/maps/api/js"]'));
     legacyScripts.forEach(script => script.remove());
 
-    const existing = document.getElementById('googleMapsScript');
-    if (existing && existing.src && existing.src.includes('maps.googleapis.com/maps/api/js')) {
-      if (existing.src.includes('v=weekly') && existing.src.includes('libraries=places')) return Promise.resolve();
-      existing.remove();
-    }
-
-    if (window.google && window.google.maps && window.google.maps.places) return Promise.resolve();
-
-    return new Promise((resolve, reject) => {
+    googleMapsLoadPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.id = 'googleMapsScript';
       script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places&loading=async`;
@@ -2230,6 +2250,18 @@
       script.onerror = () => reject(new Error('Google Maps script failed to load. Please confirm the API key is valid and the Maps JavaScript API + Places API are enabled in Google Cloud.'));
       document.head.appendChild(script);
     });
+
+    return googleMapsLoadPromise;
+  }
+
+  async function waitForGooglePlacesReady(timeoutMs = 15000) {
+    const start = Date.now();
+    while (!(window.google && window.google.maps && (window.google.maps.places || window.google.maps.places && window.google.maps.places.PlaceAutocompleteElement))) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('Places autocomplete is disabled. Enable Places API (New) and Maps JavaScript API in Google Cloud, then refresh the page.');
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
   }
 
   function initVenueAutocomplete(inputId, setLatLng) {
