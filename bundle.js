@@ -1827,6 +1827,7 @@
                 const resolved = resolveWeekAndDay(dateObj);
                 const day = DAYS.find(d => d.id === resolved.dayId) || DAYS[0];
                 const iso = toISODate(dateObj);
+                const daySelectedTimes = TIME_SLOTS.filter(tSlot => selectedSlots.has(slotKeyForDate(dateObj, tSlot)));
                 return `
                   <div class="day-row">
                     <div class="day-row-title">
@@ -1834,12 +1835,18 @@
                       <span class="date-label">${iso}</span>
                       <span style="font-size:11px;color:var(--text-muted);font-weight:600">${resolved.week === 'next' ? t('tabNextWeek') : t('tabThisWeek')}</span>
                     </div>
-                    <div class="time-slot-grid">
-                      ${TIME_SLOTS.map(tSlot => {
-                        const slotKey = slotKeyForDate(dateObj, tSlot);
-                        const isSelected = selectedSlots.has(slotKey);
-                        return `<button class="slot-btn ${isSelected ? 'selected' : ''}" data-slot="${slotKey}">${tSlot} - ${add30Mins(tSlot)}</button>`;
-                      }).join('')}
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                      <label style="font-size:12px;color:var(--text-muted);font-weight:700;">${lang === 'zh' ? '起始时间' : 'Start time'}</label>
+                      <select class="form-select start-time-select" data-date="${iso}" style="min-width:140px;max-width:170px;">
+                        <option value="">${lang === 'zh' ? '请选择' : 'Select'}</option>
+                        ${TIME_SLOTS.map(tSlot => `<option value="${tSlot}">${tSlot}</option>`).join('')}
+                      </select>
+                      <button type="button" class="btn btn-ghost btn-xs add-time-slot-btn" data-date="${iso}">${lang === 'zh' ? '添加' : 'Add'}</button>
+                    </div>
+                    <div style="margin-top:8px;font-size:12px;color:var(--text-muted);line-height:1.6;">
+                      ${daySelectedTimes.length
+                        ? daySelectedTimes.map(tSlot => `${tSlot} - ${add30Mins(tSlot)}`).join(' · ')
+                        : (lang === 'zh' ? '未选择时间段' : 'No time selected')}
                     </div>
                   </div>
                 `;
@@ -2079,6 +2086,8 @@
     if (addVenuePresetBtn) {
       const canSaveVenuePreset = !!selectedVenueId && selectedGames.size > 0;
       addVenuePresetBtn.disabled = !canSaveVenuePreset;
+      addVenuePresetBtn.style.opacity = canSaveVenuePreset ? '1' : '0.55';
+      addVenuePresetBtn.style.cursor = canSaveVenuePreset ? 'pointer' : 'not-allowed';
       addVenuePresetBtn.onclick = async () => {
         const presetVenueId = selectedVenueId || (venues[0] ? venues[0].id : null);
         if (!presetVenueId) {
@@ -2212,19 +2221,19 @@
       } catch (err) { alert(err.message); }
     };
 
-    container.querySelectorAll('.slot-btn').forEach(btn => {
-      btn.onclick = async (e) => {
-        e.preventDefault();
-        const slotKey = btn.dataset.slot;
-        if (selectedSlots.has(slotKey)) {
-          selectedSlots.delete(slotKey);
-          btn.classList.remove('selected');
-        } else {
-          selectedSlots.add(slotKey);
-          btn.classList.add('selected');
-        }
+    container.querySelectorAll('.add-time-slot-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const dateIso = btn.dataset.date;
+        const dateSelect = Array.from(container.querySelectorAll('.start-time-select')).find(el => el.dataset.date === dateIso);
+        if (!dateSelect || !dateSelect.value) return;
+
+        const dateObj = parseISODate(dateIso);
+        if (!dateObj) return;
+        selectedSlots.add(slotKeyForDate(dateObj, dateSelect.value));
+
         try {
           await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
+          renderFeatureB(container);
         } catch (err) { alert(err.message); }
       };
     });
@@ -2242,6 +2251,7 @@
         }
         try {
           await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
+          renderFeatureB(container);
         } catch (err) { alert(err.message); }
       };
     });
