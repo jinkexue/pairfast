@@ -615,11 +615,12 @@
       };
     }
 
-    async saveUserGamePref(userId, slots, gameIds, venueId = null, venuePresets = []) {
-      const normalizedSlots = normalizeSlotList(slots);
-      const normalizedGames = Array.from(new Set(gameIds || []));
-      const normalizedVenueId = venueId || null;
-      const normalizedPresets = normalizeVenuePresetList(venuePresets);
+    async saveUserGamePref(userId, slots, gameIds, venueId = undefined, venuePresets = undefined) {
+      const currentPref = this.getUserGamePref(userId);
+      const normalizedSlots = slots === undefined ? currentPref.slots : normalizeSlotList(slots);
+      const normalizedGames = gameIds === undefined ? currentPref.gameIds : Array.from(new Set(gameIds || []));
+      const normalizedVenueId = venueId === undefined ? currentPref.venueId : (venueId || null);
+      const normalizedPresets = venuePresets === undefined ? currentPref.venuePresets : normalizeVenuePresetList(venuePresets);
       this.data.userGamePreferences[userId] = {
         slots: normalizedSlots,
         gameIds: normalizedGames,
@@ -816,7 +817,7 @@
           slotsToRemove.push(`${toISODate(matchDate)}|${minutesToTime(t)}`);
         }
         slotsToRemove.forEach(s => currentSlots.delete(s));
-        await this.saveUserGamePref(userId, Array.from(currentSlots), pref.gameIds || []);
+        await this.saveUserGamePref(userId, Array.from(currentSlots), pref.gameIds || [], pref.venueId || null, pref.venuePresets || []);
       }
     }
 
@@ -846,7 +847,7 @@
           currentSlots.add(`${toISODate(matchDate)}|${minutesToTime(t)}`);
         }
         const gameIds = Array.from(new Set([...(pref.gameIds || []), match.gameId]));
-        await this.saveUserGamePref(userId, Array.from(currentSlots), gameIds);
+        await this.saveUserGamePref(userId, Array.from(currentSlots), gameIds, pref.venueId || null, pref.venuePresets || []);
       }
     }
 
