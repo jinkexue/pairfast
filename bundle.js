@@ -1540,9 +1540,9 @@
     const fullyConfirmed = (m.userIds || []).length > 0 && (m.confirmedUserIds || []).length >= (m.userIds || []).length;
     return `
       <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''} ${past ? 'past' : ''}">
-        <div style="display:flex;align-items:stretch;gap:18px;flex-wrap:nowrap;min-height:300px;">
-          <div style="flex:1 1 50%;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+        <div style="display:flex;align-items:flex-start;gap:18px;flex-wrap:nowrap;min-height:240px;">
+          <div style="flex:1 1 50%;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
               <div style="display:flex;align-items:center;gap:12px">
                 <span class="sport-icon-wrap" style="width:48px;height:48px;background:rgba(255,255,255,0.06);border-radius:14px">${renderSportIcon(gameObj, 28)}</span>
                 <div>
@@ -1555,7 +1555,19 @@
               </div>
               <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
             </div>
-            <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;margin-bottom:12px;">
+            ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
+              <div style="display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin-top:2px;">
+                <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${lang === 'zh' ? '退出该场' : 'Exit This Match'}</button>
+                <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
+                  ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
+                </button>
+              </div>
+            ` : (!past ? `
+              <div style="display:flex;justify-content:flex-start;margin-top:2px;">
+                <button class="btn btn-primary btn-sm join-match-btn" data-id="${m.id}">${lang === 'zh' ? '加入该场' : 'Join This Match'}</button>
+              </div>
+            ` : '')}
+            <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;">
               <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:8px">${t('membersLabel')} (${(m.confirmedUserIds || []).length}/${(m.userIds || []).length} Confirmed)</span>
               <div style="display:flex;flex-wrap:wrap;gap:8px">
                 ${(m.userIds || []).map(uId => {
@@ -1571,26 +1583,14 @@
                 }).join('')}
               </div>
             </div>
-            ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
-              <div style="display:flex;gap:10px;justify-content:flex-start;flex-wrap:wrap;margin-top:auto;">
-                <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${lang === 'zh' ? '退出该场' : 'Exit This Match'}</button>
-                <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
-                  ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
-                </button>
-              </div>
-            ` : (!past ? `
-              <div style="display:flex;justify-content:flex-start;margin-top:auto;">
-                <button class="btn btn-primary btn-sm join-match-btn" data-id="${m.id}">${lang === 'zh' ? '加入该场' : 'Join This Match'}</button>
-              </div>
-            ` : '')}
           </div>
-          <div style="flex:0 0 50%;min-width:220px;display:flex;align-items:stretch;">
+          <div style="flex:0 0 50%;min-width:220px;display:flex;align-items:flex-start;align-self:flex-start;">
             ${(() => {
               const venue = getVenueById(m.venueId || '');
               if (!venue) {
-                return `<div style="width:100%;padding:18px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;">📍 Venue map unavailable</div>`;
+                return `<div style="width:100%;padding:18px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:220px;">📍 Venue map unavailable</div>`;
               }
-              return `<div style="width:100%;height:100%;min-height:240px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>`;
+              return `<div style="width:100%;min-height:220px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>`;
             })()}
           </div>
         </div>
@@ -2950,10 +2950,10 @@
     const renderHomeBMatchPreview = (m, idx) => {
       const venue = getVenueById(m.venueId || '');
       return `
-        <div style="display:flex;align-items:stretch;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:nowrap;min-height:200px;">
-          <div style="flex:1 1 55%;min-width:0;display:flex;align-items:stretch;">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
-          <div style="flex:0 0 45%;min-width:170px;display:flex;align-items:stretch;max-width:220px;">
-            ${venue ? `<div style="width:100%;height:100%;min-height:200px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>` : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;">📍 Venue map unavailable</div>'}
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:nowrap;min-height:190px;">
+          <div style="flex:1 1 55%;min-width:0;display:flex;align-items:flex-start;">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
+          <div style="flex:0 0 45%;min-width:170px;display:flex;align-items:flex-start;max-width:220px;">
+            ${venue ? `<div style="width:100%;min-height:190px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>` : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:190px;">📍 Venue map unavailable</div>'}
           </div>
         </div>
       `;
