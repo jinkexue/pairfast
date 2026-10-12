@@ -1752,6 +1752,7 @@
     const selectedVenueId = activePreset ? (activePreset.venueId || '') : (userPref.venueId || '');
     const selectedGamesBase = Array.from(new Set(activePreset ? (activePreset.gameIds || []) : (userPref.gameIds || [])));
     const selectedGames = new Set(selectedGamesBase.filter(gid => !selectedVenueId || isVenueGameSupported(selectedVenueId, gid)));
+    const visibleGames = selectedVenueId ? games.filter(g => isVenueGameSupported(selectedVenueId, g.id)) : games;
     const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
     const upcomingMatches = matches.filter(m => !isMatchPast(m));
     const pastMatches = matches.filter(m => isMatchPast(m));
