@@ -933,9 +933,11 @@
 
   function isNext30Min(t1, t2) { return add30Mins(t1) === t2; }
   function add30Mins(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    if (m === 0) return `${String(h).padStart(2, '0')}:30`;
-    return `${String(h + 1).padStart(2, '0')}:00`;
+    const [h, m] = String(timeStr || '00:00').split(':').map(Number);
+    const nextMinutes = (h * 60 + m + 30) % (24 * 60);
+    const nextHour = Math.floor(nextMinutes / 60) % 24;
+    const nextMinute = nextMinutes % 60;
+    return `${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`;
   }
 
   const store = new Store();
@@ -1373,7 +1375,7 @@
     { id: 'Sun', en: 'Sunday', zh: '周日', dow: 0 }
   ];
   const TIME_SLOTS = [];
-  for (let h = 12; h <= 21; h++) {
+  for (let h = 0; h <= 23; h++) {
     const hStr = String(h).padStart(2, '0');
     TIME_SLOTS.push(`${hStr}:00`); TIME_SLOTS.push(`${hStr}:30`);
   }
@@ -1477,9 +1479,9 @@
 
   function renderSportIcon(g, size) {
     const sz = size || 24;
-    const name = String((g && g.name) || '').toLowerCase();
+    const rawName = [g && g.name, g && g.nameEn, g && g.nameZh].filter(Boolean).join(' ').toLowerCase();
     const icon = (g && g.icon) || '';
-    const isPickle = icon === 'pickle' || name.includes('pickle') || name.includes('匹克');
+    const isPickle = icon === 'pickle' || rawName.includes('pickle') || rawName.includes('匹克');
     if (isPickle) {
       const color = (g && g.color) || '#ff6b00';
       return `<svg class="sport-icon-pickle" width="${sz}" height="${sz}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -1880,7 +1882,7 @@
                     return `
                       <div class="game-item-card ${isSel ? 'selected' : ''}" data-id="${g.id}">
                         <span class="sport-icon-wrap">${renderSportIcon(g, 24)}</span>
-                        <div><strong style="display:block;font-size:14px;color:var(--text-main)">${g.name}</strong></div>
+                        <div><strong style="display:block;font-size:14px;color:var(--text-main)">${getLocalizedGameName(g)}</strong></div>
                       </div>
                     `;
                   }).join('')}
@@ -2274,15 +2276,29 @@
       } catch (err) { alert(err.message); }
     };
 
-    container.querySelectorAll('.add-time-slot-btn').forEach(btn => {
+    container.querySelectorAll('.add-day-time-range-btn').forEach(btn => {
       btn.onclick = async () => {
         const dateIso = btn.dataset.date;
-        const dateSelect = Array.from(container.querySelectorAll('.start-time-select')).find(el => el.dataset.date === dateIso);
-        if (!dateSelect || !dateSelect.value) return;
+        const startEl = container.querySelector(`.start-time-select[data-date="${dateIso}"]`);
+        const endEl = container.querySelector(`.end-time-select[data-date="${dateIso}"]`);
+        if (!startEl || !endEl) return;
+
+        const startT = startEl.value;
+        const endT = endEl.value;
+        if (!startT || !endT || startT >= endT) {
+          alert(lang === 'zh' ? '请选择有效的 24 小时起始时间和结束时间，开始时间必须早于结束时间。' : 'Please choose a valid 24-hour start and end time where start is earlier than end.');
+          return;
+        }
 
         const dateObj = parseISODate(dateIso);
         if (!dateObj) return;
-        selectedSlots.add(slotKeyForDate(dateObj, dateSelect.value));
+
+        const startMinutes = timeToMinutes(startT);
+        const endMinutes = timeToMinutes(endT);
+        for (let minute = startMinutes; minute < endMinutes; minute += 30) {
+          const slot = minutesToTime(minute);
+          selectedSlots.add(slotKeyForDate(dateObj, slot));
+        }
 
         try {
           await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
@@ -2374,7 +2390,7 @@
                   <strong>${v.name}</strong>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${v.address}</div>
                   <div style="font-size:12px;color:var(--text-muted);margin-top:4px">📍 ${Number(v.lat || 0).toFixed(6)}, ${Number(v.lng || 0).toFixed(6)}</div>
-                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">🧩 ${((v.supportedGameIds || []).map(id => (games.find(g => g.id === id) || { name: id }).name).join(', ') || '—')}</div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">🧩 ${((v.supportedGameIds || []).map(id => getLocalizedGameName(games.find(g => g.id === id) || { name: id })).join(', ') || '—')}</div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
                   <button class="btn btn-ghost btn-sm edit-venue-btn" data-id="${v.id}">Edit</button>
@@ -2402,7 +2418,7 @@
               ${games.map(g => `
                 <label class="perm-checkbox" style="padding:6px 10px;">
                   <input type="checkbox" name="venueGame" value="${g.id}" ${editingVenue && Array.isArray(editingVenue.supportedGameIds) && editingVenue.supportedGameIds.includes(g.id) ? 'checked' : ''}>
-                  <span>${g.name}</span>
+                  <span>${getLocalizedGameName(g)}</span>
                 </label>
               `).join('')}
             </div>
@@ -2568,7 +2584,7 @@
         <div style="margin-bottom:20px;max-height:240px;overflow-y:auto">
           ${games.map(g => `
             <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:rgba(255,255,255,0.04);border-radius:10px;margin-bottom:8px">
-              <div style="display:flex;align-items:center;gap:10px"><span class="sport-icon-wrap">${renderSportIcon(g, 22)}</span><span><strong>${g.name}</strong></span></div>
+              <div style="display:flex;align-items:center;gap:10px"><span class="sport-icon-wrap">${renderSportIcon(g, 22)}</span><span><strong>${getLocalizedGameName(g)}</strong></span></div>
               <button class="btn btn-danger btn-sm del-cat-btn" data-id="${g.id}">Delete</button>
             </div>
           `).join('')}
