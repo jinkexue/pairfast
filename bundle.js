@@ -692,11 +692,17 @@
         flush();
       });
 
-      this.data.gameMatches = newMatches;
+      const previousMatches = Array.isArray(this.data.gameMatches) ? this.data.gameMatches : [];
+      const historicalMatches = previousMatches.filter(m => !newMatches.some(n => n.matchSlotKey === m.matchSlotKey) && isMatchPast(m));
+      this.data.gameMatches = [...historicalMatches, ...newMatches].sort((a, b) => {
+        const aDate = dayKeyToDate(a.dayKey) || new Date(0);
+        const bDate = dayKeyToDate(b.dayKey) || new Date(0);
+        return aDate - bDate || String(a.startT).localeCompare(String(b.startT));
+      });
       try {
         await api('game-matches', {
           method: 'PUT',
-          body: JSON.stringify({ matches: newMatches })
+          body: JSON.stringify({ matches: this.data.gameMatches })
         });
       } catch (err) {
         console.warn('Game match sync failed:', err);
@@ -1159,6 +1165,7 @@
       document.body.appendChild(panel);
     }
 
+    fab.title = t('feedbackTitle');
     fab.onclick = () => panel.classList.toggle('open');
     panel.querySelector('#closeFeedbackBtn').onclick = () => panel.classList.remove('open');
     panel.querySelector('#sendFeedbackBtn').onclick = async () => {
@@ -1457,7 +1464,7 @@
         <circle cx="19.1" cy="6.25" r="0.45" fill="#0b0f19" opacity="0.45"/>
       </svg>`;
     }
-    return `<span style="font-size:${sz}px;line-height:1">${icon || '🎮'}</span>`;
+    return `<span style="font-size:${sz}px;line-height:1">${icon || '�'}</span>`;
   }
 
   function matchEndDateTime(m) {
@@ -1491,13 +1498,14 @@
     const allUsers = store.getUsers();
     const memberCount = (m.userIds || []).length;
     const confirmedCount = (m.confirmedUserIds || []).length;
+    const fullyConfirmed = memberCount > 0 && confirmedCount >= memberCount;
     return `
-      <div class="match-card ${isConfirmed ? 'confirmed' : ''}" style="padding:16px;">
+      <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''}" style="padding:16px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:12px">
             <span class="sport-icon-wrap" style="width:42px;height:42px;background:rgba(255,255,255,0.06);border-radius:12px">${renderSportIcon(gameObj, 24)}</span>
             <div>
-              <h4 style="font-size:16px;font-weight:800;color:#fff;margin:0">${gameObj.name}</h4>
+              <h4 style="font-size:16px;font-weight:800;color:#fff;margin:0">${getLocalizedGameName(gameObj)}</h4>
               <div style="color:var(--text-muted);font-size:12px;display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
                 <span>📅 ${formatMatchDateLabel(m, lang)}</span>
               </div>
@@ -1529,13 +1537,14 @@
     const isConfirmed = m.status === 'confirmed';
     const userHasConfirmed = (m.confirmedUserIds || []).includes(currentUser.id);
     const past = isMatchPast(m);
+    const fullyConfirmed = (m.userIds || []).length > 0 && (m.confirmedUserIds || []).length >= (m.userIds || []).length;
     return `
-      <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${past ? 'past' : ''}">
+      <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''} ${past ? 'past' : ''}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
           <div style="display:flex;align-items:center;gap:12px">
             <span class="sport-icon-wrap" style="width:48px;height:48px;background:rgba(255,255,255,0.06);border-radius:14px">${renderSportIcon(gameObj, 28)}</span>
             <div>
-              <h4 style="font-size:18px;font-weight:800;color:#fff">${gameObj.name}</h4>
+              <h4 style="font-size:18px;font-weight:800;color:#fff">${getLocalizedGameName(gameObj)}</h4>
               <div style="color:var(--text-muted);font-size:13px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px">
                 <span>📅 ${t('realDateLabel')}: ${formatMatchDateLabel(m, lang)}</span>
                 <strong style="color:var(--secondary)">⏰ ${t('continuousLabel')}: ${m.startT} - ${m.endT} (${m.durationMins} mins)</strong>
@@ -1624,18 +1633,42 @@
     return support.length === 0 || support.includes(gameId);
   }
 
+  function getLocalizedGameName(gameObj) {
+    const obj = gameObj || {};
+    const currentLang = getLang();
+    const raw = String(obj.name || obj.nameEn || obj.nameZh || obj.id || '').trim();
+    if (obj.nameZh && currentLang === 'zh') return obj.nameZh;
+    if (obj.nameEn && currentLang !== 'zh') return obj.nameEn;
+    if (raw.includes('(') || raw.includes('（')) {
+      const match = raw.match(/^(.*?)[（(]([^）)]+)[）)]$/);
+      if (match) {
+        const left = match[1].trim();
+        const right = match[2].trim();
+        return currentLang === 'zh' && /[\u4e00-\u9fff]/.test(right) ? right : left;
+      }
+    }
+    return raw || 'Activity';
+  }
+
   function renderVenueMapEmbed(venue, sizeLabel) {
     if (!venue || !venue.address) return '<span style="color:var(--text-muted)">📍 No venue mapped</span>';
     const query = encodeURIComponent(`${venue.name || venue.address} ${venue.address}`);
+    const mapHeight = sizeLabel === 'compact' ? '150px' : sizeLabel === 'square' ? '100%' : '220px';
+    const wrapperStyle = sizeLabel === 'square'
+      ? 'margin-top:0;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02);height:100%;min-height:180px;display:flex;flex-direction:column;'
+      : 'margin-top:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)';
+    const iframeStyle = sizeLabel === 'square'
+      ? 'width:100%;height:100%;min-height:180px;border:0;display:block;filter:grayscale(0.2) contrast(1.1);aspect-ratio:1/1;'
+      : `width:100%;height:${mapHeight};border:0;display:block;filter:grayscale(0.2) contrast(1.1);`;
     return `
-      <div style="margin-top:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)">
+      <div style="${wrapperStyle}">
         <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:12px;color:var(--text-muted)">
           📍 ${venue.name} · ${venue.address}
         </div>
         <iframe
           title="${venue.name} map"
           src="https://www.google.com/maps?q=${query}&output=embed"
-          style="width:100%;height:${sizeLabel === 'compact' ? '150px' : '220px'};border:0;display:block;filter:grayscale(0.2) contrast(1.1);"
+          style="${iframeStyle}"
           loading="lazy"
           referrerpolicy="no-referrer-when-downgrade"></iframe>
       </div>
@@ -2904,10 +2937,10 @@
     const renderHomeBMatchPreview = (m, idx) => {
       const venue = getVenueById(m.venueId || '');
       return `
-        <div style="display:flex;align-items:stretch;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:wrap">
-          <div style="flex:1.25;min-width:220px">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
-          <div style="flex:0.95;min-width:180px;display:flex;align-items:stretch">
-            ${venue ? renderVenueMapEmbed(venue, 'compact') : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px">📍 Venue map unavailable</div>'}
+        <div style="display:flex;align-items:stretch;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:nowrap;min-height:220px;">
+          <div style="flex:1.2;min-width:0">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
+          <div style="flex:0.9;min-width:180px;display:flex;align-items:stretch;max-width:220px;">
+            ${venue ? renderVenueMapEmbed(venue, 'square') : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px">📍 Venue map unavailable</div>'}
           </div>
         </div>
       `;
