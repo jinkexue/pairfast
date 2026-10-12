@@ -352,10 +352,18 @@
       this.data.games = remote.games || [];
       this.data.userGamePreferences = {};
       Object.entries(remote.userGamePreferences || {}).forEach(([userId, pref]) => {
+        const rawPresets = Array.isArray(pref && pref.venuePresets) ? pref.venuePresets : [];
         this.data.userGamePreferences[userId] = {
           slots: normalizeSlotList(pref && pref.slots ? pref.slots : []),
           gameIds: Array.from(new Set((pref && pref.gameIds) || [])),
-          venueId: pref && pref.venueId ? pref.venueId : null
+          venueId: pref && pref.venueId ? pref.venueId : null,
+          venuePresets: rawPresets.map(p => ({
+            id: p && p.id ? String(p.id) : 'preset_' + Date.now().toString(36),
+            venueId: p && p.venueId ? p.venueId : null,
+            slots: normalizeSlotList(p && p.slots ? p.slots : []),
+            gameIds: Array.from(new Set(p && p.gameIds ? p.gameIds : [])),
+            label: p && p.label ? String(p.label) : ''
+          }))
         };
       });
       this.data.carpoolProfiles = remote.carpoolProfiles || {};
@@ -589,25 +597,41 @@
 
     getUserGamePref(userId) {
       const pref = this.data.userGamePreferences[userId] || { slots: [], gameIds: [] };
+      const venuePresets = Array.isArray(pref.venuePresets) ? pref.venuePresets.map(p => ({
+        id: String(p && p.id ? p.id : Date.now().toString(36)),
+        venueId: p && p.venueId ? p.venueId : null,
+        slots: normalizeSlotList(p && p.slots ? p.slots : []),
+        gameIds: Array.from(new Set(p && p.gameIds ? p.gameIds : [])),
+        label: p && p.label ? String(p.label) : ''
+      })) : [];
       return {
         slots: normalizeSlotList(pref.slots || []),
         gameIds: Array.from(new Set(pref.gameIds || [])),
-        venueId: pref.venueId || null
+        venueId: pref.venueId || null,
+        venuePresets
       };
     }
 
-    async saveUserGamePref(userId, slots, gameIds, venueId = null) {
+    async saveUserGamePref(userId, slots, gameIds, venueId = null, venuePresets = []) {
       const normalizedSlots = normalizeSlotList(slots);
       const normalizedGames = Array.from(new Set(gameIds || []));
       const normalizedVenueId = venueId || null;
+      const normalizedPresets = Array.isArray(venuePresets) ? venuePresets.map(p => ({
+        id: p && p.id ? String(p.id) : 'preset_' + Date.now().toString(36),
+        venueId: p && p.venueId ? p.venueId : null,
+        slots: normalizeSlotList(p && p.slots ? p.slots : []),
+        gameIds: Array.from(new Set(p && p.gameIds ? p.gameIds : [])),
+        label: p && p.label ? String(p.label) : ''
+      })) : [];
       this.data.userGamePreferences[userId] = {
         slots: normalizedSlots,
         gameIds: normalizedGames,
-        venueId: normalizedVenueId
+        venueId: normalizedVenueId,
+        venuePresets: normalizedPresets
       };
       await api('preferences/' + userId, {
         method: 'PUT',
-        body: JSON.stringify({ slots: normalizedSlots, gameIds: normalizedGames, venueId: normalizedVenueId })
+        body: JSON.stringify({ slots: normalizedSlots, gameIds: normalizedGames, venueId: normalizedVenueId, venuePresets: normalizedPresets })
       });
       await this.autoGenerateGameMatches();
     }
@@ -1710,7 +1734,8 @@
 
     const selectedSlots = new Set(normalizeSlotList(userPref.slots || []));
     const selectedGames = new Set(Array.from(new Set(userPref.gameIds || [])));
-    const selectedVenueId = userPref.venueId || (venues[0] ? venues[0].id : '');
+    const selectedVenueId = userPref.venueId || '';
+    const venuePresets = Array.isArray(userPref.venuePresets) ? userPref.venuePresets : [];
     const visibleGames = selectedVenueId ? games.filter(g => isVenueGameSupported(selectedVenueId, g.id)) : games;
 
     const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
@@ -1791,11 +1816,24 @@
 
           <div style="margin-bottom:20px">
             <label class="form-group label">${t('venueSelectLabel')}</label>
-            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap; margin-bottom:12px">
               <select id="venueSelect" class="form-select" style="min-width:260px">
-                ${venues.length ? venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('') : `<option value="">${t('noVenueSelected')}</option>`}
+                <option value="">${t('noVenueSelected')}</option>
+                ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
               </select>
               ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
+            </div>
+            <div id="venueMapSelection" style="width:100%;height:240px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
+          </div>
+
+          <div style="margin-bottom:16px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Saved Venue Presets</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+              <button class="btn btn-ghost btn-sm" id="addVenuePresetBtn" type="button">+ Save current venue preset</button>
+              ${venuePresets.length ? venuePresets.map(preset => {
+                  const label = (getVenueById(preset.venueId) || { name: 'Venue' }).name;
+                  return `<span class="venue-preset-pill" data-preset-id="${preset.id}" style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);font-size:12px;color:var(--text-main)"><span>${label} · ${preset.slots.length || 0} slots</span><button type="button" data-remove-preset-id="${preset.id}" class="btn btn-ghost btn-xs" style="padding:2px 6px;min-width:auto;border-radius:999px">✕</button></span>`;
+              }).join('') : '<span style="font-size:12px;color:var(--text-muted)">No saved presets yet.</span>'}
             </div>
           </div>
 
@@ -1876,11 +1914,141 @@
         selectedGames.clear();
         nextGames.forEach(gid => selectedGames.add(gid));
         try {
-          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), nextVenueId);
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), nextVenueId, venuePresets);
           renderFeatureB(container);
         } catch (err) { alert(err.message); }
       };
     }
+
+    const venueMapSelection = container.querySelector('#venueMapSelection');
+    if (venueMapSelection) {
+      const mapEl = document.createElement('div');
+      mapEl.style.width = '100%';
+      mapEl.style.height = '100%';
+      venueMapSelection.innerHTML = '';
+      venueMapSelection.appendChild(mapEl);
+
+      (async () => {
+        try {
+          await loadGoogleMapsScript();
+          if (!window.google || !window.google.maps) return;
+
+          const defaultCenter = getCalgaryCenterFallback();
+          const map = new google.maps.Map(mapEl, {
+            center: defaultCenter,
+            zoom: 10,
+            disableDefaultUI: false,
+            gestureHandling: 'greedy',
+            mapTypeControl: false,
+            streetViewControl: false,
+            fullscreenControl: false
+          });
+
+          const userLocation = { lat: defaultCenter.lat, lng: defaultCenter.lng };
+          if (navigator && navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition((position) => {
+              const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
+              const userMarker = new google.maps.Marker({
+                map,
+                position: pos,
+                title: 'Your location',
+                icon: {
+                  path: google.maps.SymbolPath.CIRCLE,
+                  scale: 8,
+                  fillColor: '#22c55e',
+                  fillOpacity: 1,
+                  strokeColor: '#ffffff',
+                  strokeWeight: 2
+                }
+              });
+              map.setCenter(pos);
+              map.setZoom(11);
+              if (userMarker) {
+                userMarker.addListener('click', () => {
+                  if (venueSelect) venueSelect.value = '';
+                  if (venueSelect) venueSelect.dispatchEvent(new Event('change'));
+                });
+              }
+            }, () => {
+              map.setCenter(defaultCenter);
+            }, { enableHighAccuracy: true, timeout: 10000 });
+          }
+
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(defaultCenter);
+          venues.forEach((v) => {
+            const lat = Number(v.lat);
+            const lng = Number(v.lng);
+            const valid = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+            if (!valid) return;
+            const marker = new google.maps.Marker({
+              map,
+              position: { lat, lng },
+              title: v.name,
+              label: { text: v.name, color: '#ffffff', fontSize: '11px', fontWeight: '700' }
+            });
+            bounds.extend({ lat, lng });
+            marker.addListener('click', async () => {
+              if (venueSelect) {
+                venueSelect.value = v.id;
+                venueSelect.dispatchEvent(new Event('change'));
+              }
+            });
+          });
+
+          if (selectedVenueId) {
+            const selectedVenue = getVenueById(selectedVenueId);
+            if (selectedVenue) {
+              const lat = Number(selectedVenue.lat);
+              const lng = Number(selectedVenue.lng);
+              if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                map.setCenter({ lat, lng });
+                map.setZoom(13);
+              }
+            }
+          } else {
+            map.fitBounds(bounds, 30);
+          }
+        } catch (err) {
+          console.warn('Venue map selection unavailable:', err);
+          venueMapSelection.innerHTML = '<div style="display:grid;place-items:center;width:100%;height:100%;padding:12px;color:var(--text-muted);font-size:12px">Map unavailable. Please enable Google Maps API in settings.</div>';
+        }
+      })();
+    }
+
+    const addVenuePresetBtn = container.querySelector('#addVenuePresetBtn');
+    if (addVenuePresetBtn) {
+      addVenuePresetBtn.onclick = async () => {
+        const presetVenueId = selectedVenueId || (venues[0] ? venues[0].id : null);
+        if (!presetVenueId) {
+          alert('Please choose a venue before saving a preset.');
+          return;
+        }
+        const nextPreset = {
+          id: 'preset_' + Date.now().toString(36),
+          venueId: presetVenueId,
+          slots: Array.from(selectedSlots),
+          gameIds: Array.from(selectedGames),
+          label: `${getVenueById(presetVenueId)?.name || 'Venue'} · ${Array.from(selectedSlots).length || 0} slots`
+        };
+        const nextPresets = [...venuePresets, nextPreset];
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, nextPresets);
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
+      };
+    }
+
+    container.querySelectorAll('[data-remove-preset-id]').forEach(btn => {
+      btn.onclick = async () => {
+        const presetId = btn.dataset.removePresetId;
+        const nextPresets = venuePresets.filter(p => p.id !== presetId);
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, nextPresets);
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
 
     const manageVenuesBtn = container.querySelector('#manageVenuesBtn');
     if (manageVenuesBtn) {
@@ -1952,7 +2120,7 @@
         });
       });
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
         renderFeatureB(container);
       } catch (err) { alert(err.message); }
     };
@@ -1964,7 +2132,7 @@
         });
       });
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
         renderFeatureB(container);
       } catch (err) { alert(err.message); }
     };
@@ -1981,7 +2149,7 @@
           btn.classList.add('selected');
         }
         try {
-          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
         } catch (err) { alert(err.message); }
       };
     });
@@ -1998,7 +2166,7 @@
           card.classList.add('selected');
         }
         try {
-          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null);
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
         } catch (err) { alert(err.message); }
       };
     });
@@ -2010,7 +2178,7 @@
         return;
       }
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), filteredGames, selectedVenueId || null);
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), filteredGames, selectedVenueId || null, venuePresets);
         const fb = container.querySelector('#saveFeedbackB');
         if (fb) {
           fb.style.display = 'inline-block';
