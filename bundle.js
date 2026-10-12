@@ -1540,47 +1540,60 @@
     const fullyConfirmed = (m.userIds || []).length > 0 && (m.confirmedUserIds || []).length >= (m.userIds || []).length;
     return `
       <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''} ${past ? 'past' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
-          <div style="display:flex;align-items:center;gap:12px">
-            <span class="sport-icon-wrap" style="width:48px;height:48px;background:rgba(255,255,255,0.06);border-radius:14px">${renderSportIcon(gameObj, 28)}</span>
-            <div>
-              <h4 style="font-size:18px;font-weight:800;color:#fff">${getLocalizedGameName(gameObj)}</h4>
-              <div style="color:var(--text-muted);font-size:13px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px">
-                <span>📅 ${t('realDateLabel')}: ${formatMatchDateLabel(m, lang)}</span>
-                <strong style="color:var(--secondary)">⏰ ${t('continuousLabel')}: ${m.startT} - ${m.endT} (${m.durationMins} mins)</strong>
+        <div style="display:flex;align-items:stretch;gap:18px;flex-wrap:nowrap;min-height:300px;">
+          <div style="flex:1 1 50%;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:14px">
+              <div style="display:flex;align-items:center;gap:12px">
+                <span class="sport-icon-wrap" style="width:48px;height:48px;background:rgba(255,255,255,0.06);border-radius:14px">${renderSportIcon(gameObj, 28)}</span>
+                <div>
+                  <h4 style="font-size:18px;font-weight:800;color:#fff;margin:0">${getLocalizedGameName(gameObj)}</h4>
+                  <div style="color:var(--text-muted);font-size:13px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px">
+                    <span>📅 ${t('realDateLabel')}: ${formatMatchDateLabel(m, lang)}</span>
+                    <strong style="color:var(--secondary)">⏰ ${t('continuousLabel')}: ${m.startT} - ${m.endT} (${m.durationMins} mins)</strong>
+                  </div>
+                </div>
+              </div>
+              <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
+            </div>
+            <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;margin-bottom:16px">
+              <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:8px">${t('membersLabel')} (${(m.confirmedUserIds || []).length}/${(m.userIds || []).length} Confirmed)</span>
+              <div style="display:flex;flex-wrap:wrap;gap:8px">
+                ${(m.userIds || []).map(uId => {
+                  const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
+                  const hasConf = (m.confirmedUserIds || []).includes(uId);
+                  return `
+                    <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:${hasConf?'var(--success-bg)':'rgba(255,255,255,0.06)'};border:1px solid ${hasConf?'var(--success)':'rgba(255,255,255,0.1)'};font-size:13px;font-weight:600">
+                      <span>${renderAvatarHtml(u.avatar, 20)}</span>
+                      <span>${u.name}</span>
+                      ${hasConf ? '<span style="color:var(--success)">✓</span>' : ''}
+                    </div>
+                  `;
+                }).join('')}
               </div>
             </div>
+            ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
+              <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:auto;">
+                <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${lang === 'zh' ? '退出该场' : 'Exit This Match'}</button>
+                <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
+                  ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
+                </button>
+              </div>
+            ` : (!past ? `
+              <div style="display:flex;justify-content:flex-end;margin-top:auto;">
+                <button class="btn btn-primary btn-sm join-match-btn" data-id="${m.id}">${lang === 'zh' ? '加入该场' : 'Join This Match'}</button>
+              </div>
+            ` : '')}
           </div>
-          <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
+          <div style="flex:0 0 50%;min-width:220px;display:flex;align-items:stretch;">
+            ${(() => {
+              const venue = getVenueById(m.venueId || '');
+              if (!venue) {
+                return `<div style="width:100%;padding:18px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;">📍 Venue map unavailable</div>`;
+              }
+              return `<div style="width:100%;height:100%;min-height:260px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>`;
+            })()}
+          </div>
         </div>
-        <div style="background:rgba(0,0,0,0.25);padding:12px;border-radius:12px;margin-bottom:16px">
-          <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:8px">${t('membersLabel')} (${(m.confirmedUserIds || []).length}/${(m.userIds || []).length} Confirmed)</span>
-          <div style="display:flex;flex-wrap:wrap;gap:8px">
-            ${(m.userIds || []).map(uId => {
-              const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
-              const hasConf = (m.confirmedUserIds || []).includes(uId);
-              return `
-                <div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:${hasConf?'var(--success-bg)':'rgba(255,255,255,0.06)'};border:1px solid ${hasConf?'var(--success)':'rgba(255,255,255,0.1)'};font-size:13px;font-weight:600">
-                  <span>${renderAvatarHtml(u.avatar, 20)}</span>
-                  <span>${u.name}</span>
-                  ${hasConf ? '<span style="color:var(--success)">✓</span>' : ''}
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-        ${(!past && (m.userIds || []).includes(currentUser.id)) ? `
-          <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">
-            <button class="btn btn-ghost btn-sm opt-out-btn" data-id="${m.id}">${lang === 'zh' ? '退出该场' : 'Exit This Match'}</button>
-            <button class="btn ${userHasConfirmed ? 'btn-secondary' : 'btn-primary'} btn-sm confirm-btn" data-id="${m.id}" ${userHasConfirmed ? 'disabled' : ''}>
-              ${userHasConfirmed ? '✓ Confirmed' : t('confirmSession')}
-            </button>
-          </div>
-        ` : (!past ? `
-          <div style="display:flex;justify-content:flex-end">
-            <button class="btn btn-primary btn-sm join-match-btn" data-id="${m.id}">${lang === 'zh' ? '加入该场' : 'Join This Match'}</button>
-          </div>
-        ` : '')}
       </div>
     `;
   }
@@ -1700,7 +1713,7 @@
       <div style="margin-bottom: 24px;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px">
           <div>
-            <span class="hero-badge" style="background:var(--secondary-light);color:var(--secondary);border-color:rgba(20,184,166,0.3)">🎮 Option B · Activity Teamup</span>
+            <span class="hero-badge" style="background:var(--secondary-light);color:var(--secondary);border-color:rgba(20,184,166,0.3)">Option B · Activity Teamup</span>
             <h1 style="font-size:30px;font-weight:800;margin-top:8px">${t('featBTitle')}</h1>
           </div>
           ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageCategoriesBtn">⚙️ ${t('manageCategoriesBtn')}</button>` : ''}
@@ -2915,7 +2928,7 @@
       {
         key: 'B',
         route: 'featB',
-        icon: '🏓',
+        icon: '�',
         title: t('featBTitle'),
         desc: t('featBDesc'),
         guide: isGuest
