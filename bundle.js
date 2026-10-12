@@ -1836,17 +1836,27 @@
                       <span style="font-size:11px;color:var(--text-muted);font-weight:600">${resolved.week === 'next' ? t('tabNextWeek') : t('tabThisWeek')}</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;">
-                      <label style="font-size:12px;color:var(--text-muted);font-weight:700;">${lang === 'zh' ? '起始时间' : 'Start time'}</label>
+                      <label style="font-size:12px;color:var(--text-muted);font-weight:700;">${lang === 'zh' ? '开始时间' : 'Start time'}</label>
                       <select class="form-select start-time-select" data-date="${iso}" style="min-width:140px;max-width:170px;">
                         <option value="">${lang === 'zh' ? '请选择' : 'Select'}</option>
                         ${TIME_SLOTS.map(tSlot => `<option value="${tSlot}">${tSlot}</option>`).join('')}
                       </select>
-                      <button type="button" class="btn btn-ghost btn-xs add-time-slot-btn" data-date="${iso}">${lang === 'zh' ? '添加' : 'Add'}</button>
+                      <label style="font-size:12px;color:var(--text-muted);font-weight:700;">${lang === 'zh' ? '结束时间' : 'End time'}</label>
+                      <select class="form-select end-time-select" data-date="${iso}" style="min-width:140px;max-width:170px;">
+                        <option value="">${lang === 'zh' ? '请选择' : 'Select'}</option>
+                        ${TIME_SLOTS.map(tSlot => `<option value="${tSlot}">${tSlot}</option>`).join('')}
+                      </select>
+                      <button type="button" class="btn btn-secondary btn-xs add-day-time-range-btn" data-date="${iso}">${lang === 'zh' ? '添加时间段' : 'Add time range'}</button>
                     </div>
-                    <div style="margin-top:8px;font-size:12px;color:var(--text-muted);line-height:1.6;">
+                    <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
                       ${daySelectedTimes.length
-                        ? daySelectedTimes.map(tSlot => `${tSlot} - ${add30Mins(tSlot)}`).join(' · ')
-                        : (lang === 'zh' ? '未选择时间段' : 'No time selected')}
+                        ? daySelectedTimes.map(tSlot => `
+                            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;background:rgba(59,130,246,0.12);border:1px solid rgba(96,165,250,0.45);font-size:11px;color:var(--text-main);">
+                              <span>${tSlot} - ${add30Mins(tSlot)}</span>
+                              <button type="button" class="remove-day-slot-btn" data-slot="${slotKeyForDate(dateObj, tSlot)}" style="all:unset;cursor:pointer;color:var(--danger);font-weight:800;line-height:1;">×</button>
+                            </span>
+                          `).join('')
+                        : `<span style="font-size:12px;color:var(--text-muted)">${lang === 'zh' ? '未选择时间段' : 'No time selected'}</span>`}
                     </div>
                   </div>
                 `;
@@ -2114,6 +2124,49 @@
         } catch (err) { alert(err.message); }
       };
     }
+
+    container.querySelectorAll('.add-day-time-range-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const dateIso = btn.dataset.date;
+        const startEl = container.querySelector(`.start-time-select[data-date="${dateIso}"]`);
+        const endEl = container.querySelector(`.end-time-select[data-date="${dateIso}"]`);
+        if (!startEl || !endEl) return;
+
+        const startT = startEl.value;
+        const endT = endEl.value;
+        if (!startT || !endT || startT >= endT) {
+          alert(lang === 'zh' ? '请选择有效的 24 小时起始时间和结束时间，开始时间必须早于结束时间。' : 'Please choose a valid 24-hour start and end time where start is earlier than end.');
+          return;
+        }
+
+        const dateObj = parseISODate(dateIso);
+        if (!dateObj) return;
+
+        const startMinutes = timeToMinutes(startT);
+        const endMinutes = timeToMinutes(endT);
+        for (let minute = startMinutes; minute < endMinutes; minute += 30) {
+          const slot = minutesToTime(minute);
+          selectedSlots.add(slotKeyForDate(dateObj, slot));
+        }
+
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
+
+    container.querySelectorAll('.remove-day-slot-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const slotKey = btn.dataset.slot;
+        if (!slotKey) return;
+        selectedSlots.delete(slotKey);
+        try {
+          await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, venuePresets);
+          renderFeatureB(container);
+        } catch (err) { alert(err.message); }
+      };
+    });
 
     container.querySelectorAll('[data-edit-preset-id]').forEach(btn => {
       btn.onclick = () => {
