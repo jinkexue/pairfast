@@ -60,9 +60,9 @@
       applyTimeRangeBtn: "Generate Time Slots",
       clearSlots: "Clear All Slots",
       selectGamesLabel: "Select Activity Categories (Multiple):",
-      venueSelectLabel: "Select Activity Venue (Optional):",
+      venueSelectLabel: "Select Activity Venue:",
       venueMapLabel: "Venue Map",
-      noVenueSelected: "No venue selected",
+      noVenueSelected: "Select a venue",
       manageCategoriesBtn: "Manage Categories (Admin)",
       manageVenuesBtn: "Manage Venues (Admin)",
       googleMapsApiKeyLabel: "Google Maps API Key",
@@ -180,9 +180,9 @@
       applyTimeRangeBtn: "生成时间段范围",
       clearSlots: "清空当前已选",
       selectGamesLabel: "选择活动/运动种类（可多选）：",
-      venueSelectLabel: "选择活动场地（可选）：",
+      venueSelectLabel: "选择活动场地：",
       venueMapLabel: "场地地图",
-      noVenueSelected: "未选择场地",
+      noVenueSelected: "请选择场地",
       manageCategoriesBtn: "管理活动种类 (管理员专用)",
       manageVenuesBtn: "管理活动场地 (管理员专用)",
       googleMapsApiKeyLabel: "Google Maps API Key",
@@ -514,12 +514,14 @@
     }
 
     async addActivityVenue(venue) {
+      const parsedLat = Number(venue && venue.lat);
+      const parsedLng = Number(venue && venue.lng);
       const newVenue = {
         id: venue.id || 'v_' + Date.now().toString(36),
         name: venue.name || 'New Activity Venue',
         address: venue.address || '',
-        lat: Number.isFinite(Number(venue.lat)) ? Number(Number(venue.lat).toFixed(6)) : 0,
-        lng: Number.isFinite(Number(venue.lng)) ? Number(Number(venue.lng).toFixed(6)) : 0,
+        lat: Number.isFinite(parsedLat) && Math.abs(parsedLat) <= 90 ? Number(parsedLat.toFixed(6)) : null,
+        lng: Number.isFinite(parsedLng) && Math.abs(parsedLng) <= 180 ? Number(parsedLng.toFixed(6)) : null,
         supportedGameIds: Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : []
       };
       this.data.activityVenues = [...(this.data.activityVenues || []), newVenue];
@@ -535,12 +537,14 @@
     }
 
     async updateActivityVenue(venue) {
+      const parsedLat = Number(venue && venue.lat);
+      const parsedLng = Number(venue && venue.lng);
       const normalized = {
         id: venue.id,
         name: venue.name || 'Updated Activity Venue',
         address: venue.address || '',
-        lat: Number.isFinite(Number(venue.lat)) ? Number(Number(venue.lat).toFixed(6)) : 0,
-        lng: Number.isFinite(Number(venue.lng)) ? Number(Number(venue.lng).toFixed(6)) : 0,
+        lat: Number.isFinite(parsedLat) && Math.abs(parsedLat) <= 90 ? Number(parsedLat.toFixed(6)) : null,
+        lng: Number.isFinite(parsedLng) && Math.abs(parsedLng) <= 180 ? Number(parsedLng.toFixed(6)) : null,
         supportedGameIds: Array.isArray(venue.supportedGameIds) ? venue.supportedGameIds : []
       };
       this.data.activityVenues = (this.data.activityVenues || []).map(v => v.id === normalized.id ? normalized : v);
@@ -1665,7 +1669,10 @@
 
   function renderVenueMapEmbed(venue, sizeLabel) {
     if (!venue || !venue.address) return '<span style="color:var(--text-muted)">📍 No venue mapped</span>';
-    const query = encodeURIComponent(`${venue.name || venue.address} ${venue.address}`);
+    const lat = Number(venue.lat);
+    const lng = Number(venue.lng);
+    const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+    const query = hasCoords ? `${lat},${lng}` : `${venue.name || venue.address} ${venue.address}`;
     const mapHeight = sizeLabel === 'compact' ? '150px' : sizeLabel === 'square' ? '220px' : '220px';
     const wrapperStyle = sizeLabel === 'square'
       ? 'margin-top:0;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02);height:100%;min-height:150px;display:flex;flex-direction:column;'
@@ -1673,6 +1680,7 @@
     const iframeStyle = sizeLabel === 'square'
       ? 'width:100%;height:220px;border:0;display:block;filter:grayscale(0.2) contrast(1.1);aspect-ratio:1.6/1;'
       : `width:100%;height:${mapHeight};border:0;display:block;filter:grayscale(0.2) contrast(1.1);`;
+    const src = hasCoords ? `https://www.google.com/maps?q=${encodeURIComponent(query)}&z=15&output=embed` : `https://www.google.com/maps?q=${encodeURIComponent(query)}&output=embed`;
     return `
       <div style="${wrapperStyle}">
         <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.08);font-size:12px;color:var(--text-muted)">
@@ -1680,7 +1688,7 @@
         </div>
         <iframe
           title="${venue.name} map"
-          src="https://www.google.com/maps?q=${query}&output=embed"
+          src="${src}"
           style="${iframeStyle}"
           loading="lazy"
           referrerpolicy="no-referrer-when-downgrade"></iframe>
@@ -1702,7 +1710,7 @@
 
     const selectedSlots = new Set(normalizeSlotList(userPref.slots || []));
     const selectedGames = new Set(Array.from(new Set(userPref.gameIds || [])));
-    const selectedVenueId = userPref.venueId || '';
+    const selectedVenueId = userPref.venueId || (venues[0] ? venues[0].id : '');
     const visibleGames = selectedVenueId ? games.filter(g => isVenueGameSupported(selectedVenueId, g.id)) : games;
 
     const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
@@ -1785,8 +1793,7 @@
             <label class="form-group label">${t('venueSelectLabel')}</label>
             <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
               <select id="venueSelect" class="form-select" style="min-width:260px">
-                <option value="">${t('noVenueSelected')}</option>
-                ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
+                ${venues.length ? venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('') : `<option value="">${t('noVenueSelected')}</option>`}
               </select>
               ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
             </div>
