@@ -353,17 +353,20 @@
       this.data.userGamePreferences = {};
       Object.entries(remote.userGamePreferences || {}).forEach(([userId, pref]) => {
         const rawPresets = Array.isArray(pref && pref.venuePresets) ? pref.venuePresets : [];
-        this.data.userGamePreferences[userId] = {
-          slots: normalizeSlotList(pref && pref.slots ? pref.slots : []),
-          gameIds: Array.from(new Set((pref && pref.gameIds) || [])),
-          venueId: pref && pref.venueId ? pref.venueId : null,
-          venuePresets: rawPresets.map(p => ({
+        const normalizedPresets = rawPresets
+          .filter(p => p && (p.venueId || normalizeSlotList(p && p.slots ? p.slots : []).length || Array.isArray(p && p.gameIds) && p.gameIds.length))
+          .map(p => ({
             id: p && p.id ? String(p.id) : 'preset_' + Date.now().toString(36),
             venueId: p && p.venueId ? p.venueId : null,
             slots: normalizeSlotList(p && p.slots ? p.slots : []),
             gameIds: Array.from(new Set(p && p.gameIds ? p.gameIds : [])),
             label: p && p.label ? String(p.label) : ''
-          }))
+          }));
+        this.data.userGamePreferences[userId] = {
+          slots: normalizeSlotList(pref && pref.slots ? pref.slots : []),
+          gameIds: Array.from(new Set((pref && pref.gameIds) || [])),
+          venueId: pref && pref.venueId ? pref.venueId : null,
+          venuePresets: normalizedPresets
         };
       });
       this.data.carpoolProfiles = remote.carpoolProfiles || {};
@@ -597,13 +600,17 @@
 
     getUserGamePref(userId) {
       const pref = this.data.userGamePreferences[userId] || { slots: [], gameIds: [] };
-      const venuePresets = Array.isArray(pref.venuePresets) ? pref.venuePresets.map(p => ({
-        id: String(p && p.id ? p.id : Date.now().toString(36)),
-        venueId: p && p.venueId ? p.venueId : null,
-        slots: normalizeSlotList(p && p.slots ? p.slots : []),
-        gameIds: Array.from(new Set(p && p.gameIds ? p.gameIds : [])),
-        label: p && p.label ? String(p.label) : ''
-      })) : [];
+      const venuePresets = Array.isArray(pref.venuePresets)
+        ? pref.venuePresets
+            .filter(p => p && (p.venueId || normalizeSlotList(p && p.slots ? p.slots : []).length || Array.isArray(p && p.gameIds) && p.gameIds.length))
+            .map(p => ({
+              id: String(p && p.id ? p.id : Date.now().toString(36)),
+              venueId: p && p.venueId ? p.venueId : null,
+              slots: normalizeSlotList(p && p.slots ? p.slots : []),
+              gameIds: Array.from(new Set(p && p.gameIds ? p.gameIds : [])),
+              label: p && p.label ? String(p.label) : ''
+            }))
+        : [];
       return {
         slots: normalizeSlotList(pref.slots || []),
         gameIds: Array.from(new Set(pref.gameIds || [])),
@@ -1742,10 +1749,9 @@
     const venuePresets = Array.isArray(userPref.venuePresets) ? userPref.venuePresets : [];
     const activePreset = activeVenuePresetId ? venuePresets.find(p => p.id === activeVenuePresetId) || null : null;
     const selectedSlots = new Set(normalizeSlotList(activePreset ? (activePreset.slots || []) : (userPref.slots || [])));
-    const selectedGames = new Set(Array.from(new Set(activePreset ? (activePreset.gameIds || []) : (userPref.gameIds || []))));
     const selectedVenueId = activePreset ? (activePreset.venueId || '') : (userPref.venueId || '');
-    const visibleGames = selectedVenueId ? games.filter(g => isVenueGameSupported(selectedVenueId, g.id)) : games;
-
+    const selectedGamesBase = Array.from(new Set(activePreset ? (activePreset.gameIds || []) : (userPref.gameIds || [])));
+    const selectedGames = new Set(selectedGamesBase.filter(gid => !selectedVenueId || isVenueGameSupported(selectedVenueId, gid)));
     const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
     const upcomingMatches = matches.filter(m => !isMatchPast(m));
     const pastMatches = matches.filter(m => isMatchPast(m));
@@ -1822,23 +1828,15 @@
             </div>
           </div>
 
-          <div style="display:flex;gap:20px;align-items:flex-start; margin-bottom:20px;">
-            <div style="width:300px;flex:0 0 300px;">
+          <div style="display:flex;gap:20px;align-items:flex-start;margin-bottom:20px;">
+            <div style="width:360px;flex:0 0 360px;">
               <label class="form-group label">${t('venueSelectLabel')}</label>
-              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap; margin-bottom:12px">
-                <select id="venueSelect" class="form-select" style="width:100%">
-                  <option value="">${t('noVenueSelected')}</option>
-                  ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
-                </select>
-                ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
-              </div>
-            </div>
-            <div style="flex:1;min-width:0;">
-              <div id="venueMapSelection" style="width:100%;height:280px;aspect-ratio:1/1;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
-            </div>
-            <div style="width:320px;flex:0 0 320px;">
-              <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Saved session settings</div>
-              <div style="display:flex;flex-direction:column;gap:8px;">
+              <select id="venueSelect" class="form-select" style="width:100%;margin-bottom:12px;">
+                <option value="">${t('noVenueSelected')}</option>
+                ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
+              </select>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="font-size:12px;font-weight:700;color:var(--text-muted)">Saved session settings</div>
                 <button class="btn btn-ghost btn-sm" id="addVenuePresetBtn" type="button">+ Save current venue preset</button>
                 ${venuePresets.length ? venuePresets.map(preset => {
                     const venue = getVenueById(preset.venueId) || { name: 'Venue' };
@@ -1855,6 +1853,10 @@
                     `;
                 }).join('') : '<span style="font-size:12px;color:var(--text-muted)">No saved presets yet.</span>'}
               </div>
+              ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn" style="margin-top:12px;">${t('manageVenuesBtn')}</button>` : ''}
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div id="venueMapSelection" style="width:100%;height:280px;aspect-ratio:1/1;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
             </div>
           </div>
 
@@ -1924,7 +1926,11 @@
     if (venueSelect) {
       venueSelect.onchange = async () => {
         const nextVenueId = venueSelect.value || null;
-        const nextGames = Array.from(selectedGames).filter(gid => isVenueGameSupported(nextVenueId, gid));
+        activeVenuePresetId = null;
+        const allowedGames = nextVenueId
+          ? games.filter(g => isVenueGameSupported(nextVenueId, g.id)).map(g => g.id)
+          : games.map(g => g.id);
+        const nextGames = Array.from(selectedGames).filter(gid => allowedGames.includes(gid));
         selectedGames.clear();
         nextGames.forEach(gid => selectedGames.add(gid));
         try {
@@ -1968,7 +1974,7 @@
             const lng = Number(v.lng);
             const valid = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
             if (!valid) return;
-            const marker = new google.maps.Marker({
+            const marker = createMapMarker({
               map,
               position: { lat, lng },
               title: v.name,
@@ -1976,19 +1982,21 @@
             });
             allVenueMarkers.push({ marker, venue: v });
             bounds.extend({ lat, lng });
-            marker.addListener('click', async () => {
-              if (venueSelect) {
-                venueSelect.value = v.id;
-                venueSelect.dispatchEvent(new Event('change'));
-              }
-            });
+            if (marker && typeof marker.addListener === 'function') {
+              marker.addListener('click', async () => {
+                if (venueSelect) {
+                  venueSelect.value = v.id;
+                  venueSelect.dispatchEvent(new Event('change'));
+                }
+              });
+            }
           });
 
           if (navigator && navigator.geolocation) {
             navigator.geolocation.getCurrentPosition((position) => {
               const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
               bounds.extend(pos);
-              const userMarker = new google.maps.Marker({
+              const userMarker = createMapMarker({
                 map,
                 position: pos,
                 title: 'Your location',
@@ -2004,7 +2012,7 @@
               if (!selectedVenueId) {
                 map.fitBounds(bounds, 32);
               }
-              if (userMarker) {
+              if (userMarker && typeof userMarker.addListener === 'function') {
                 userMarker.addListener('click', () => {
                   if (venueSelect) venueSelect.value = '';
                   if (venueSelect) venueSelect.dispatchEvent(new Event('change'));
@@ -2372,7 +2380,7 @@
         streetViewControl: false,
         fullscreenControl: false
       });
-      const marker = new google.maps.Marker({
+      const marker = createMapMarker({
         map,
         draggable: true,
         position: defaultCenter
@@ -2605,25 +2613,22 @@
   }
 
   function createMapMarker(options) {
-    if (window.google && window.google.maps && window.google.maps.marker && window.google.maps.marker.AdvancedMarkerElement) {
+    const advancedMarkerCtor = window.google && window.google.maps && window.google.maps.marker && window.google.maps.marker.AdvancedMarkerElement;
+    if (advancedMarkerCtor) {
       const { map, position, title, icon } = options;
-      const marker = new window.google.maps.marker.AdvancedMarkerElement({
+      const marker = new advancedMarkerCtor({
         map,
         position,
         title
       });
-      if (icon && icon.url && marker.element) {
-        const badge = marker.element.querySelector('.google-material-symbols');
-        if (badge) badge.style.display = 'none';
-        const img = document.createElement('img');
-        img.src = icon.url;
-        img.alt = title || 'Map marker';
-        img.style.cssText = 'width:20px;height:20px;display:block;border-radius:50%;';
+      if (icon && marker && marker.element) {
         marker.element.style.display = 'flex';
         marker.element.style.alignItems = 'center';
         marker.element.style.justifyContent = 'center';
         marker.element.innerHTML = '';
-        marker.element.appendChild(img);
+        const dot = document.createElement('div');
+        dot.style.cssText = `width: 12px; height: 12px; border-radius: 50%; background: ${icon.fillColor || '#22c55e'}; border: 2px solid white; box-shadow: 0 0 0 3px rgba(34,197,94,0.2);`;
+        marker.element.appendChild(dot);
       }
       return marker;
     }
@@ -2632,7 +2637,7 @@
 
   async function waitForGoogleMapsReady(timeoutMs = 15000) {
     const start = Date.now();
-    while (!(window.google && window.google.maps && typeof google.maps.Map === 'function' && typeof google.maps.Marker === 'function')) {
+    while (!(window.google && window.google.maps && typeof google.maps.Map === 'function' && (window.google.maps.marker && window.google.maps.marker.AdvancedMarkerElement || typeof google.maps.Marker === 'function'))) {
       if (Date.now() - start > timeoutMs) {
         throw new Error('Google Maps is still initializing. Please refresh or confirm the Maps JavaScript API is enabled.');
       }
