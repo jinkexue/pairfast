@@ -1822,36 +1822,39 @@
             </div>
           </div>
 
-          <div style="margin-bottom:20px">
-            <label class="form-group label">${t('venueSelectLabel')}</label>
-            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap; margin-bottom:12px">
-              <select id="venueSelect" class="form-select" style="min-width:260px">
-                <option value="">${t('noVenueSelected')}</option>
-                ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
-              </select>
-              ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
+          <div style="display:flex;gap:20px;align-items:flex-start; margin-bottom:20px;">
+            <div style="width:300px;flex:0 0 300px;">
+              <label class="form-group label">${t('venueSelectLabel')}</label>
+              <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap; margin-bottom:12px">
+                <select id="venueSelect" class="form-select" style="width:100%">
+                  <option value="">${t('noVenueSelected')}</option>
+                  ${venues.map(v => `<option value="${v.id}" ${selectedVenueId === v.id ? 'selected' : ''}>${v.name} · ${v.address}</option>`).join('')}
+                </select>
+                ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
+              </div>
             </div>
-            <div id="venueMapSelection" style="width:100%;height:280px;aspect-ratio:1/1;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
-          </div>
-
-          <div style="margin-bottom:16px">
-            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Saved session settings</div>
-            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-              <button class="btn btn-ghost btn-sm" id="addVenuePresetBtn" type="button">+ Save current venue preset</button>
-              ${venuePresets.length ? venuePresets.map(preset => {
-                  const venue = getVenueById(preset.venueId) || { name: 'Venue' };
-                  const active = activeVenuePresetId === preset.id;
-                  return `
-                    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;border:1px solid ${active ? 'rgba(34,197,94,0.7)' : 'rgba(255,255,255,0.12)'};background:${active ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.02)'};font-size:12px;color:var(--text-main)">
-                      <div style="display:flex;flex-direction:column;gap:2px;min-width:180px">
-                        <strong>${venue.name}</strong>
-                        <span style="color:var(--text-muted)">${(preset.slots || []).length} slots · ${(preset.gameIds || []).length} activities</span>
+            <div style="flex:1;min-width:0;">
+              <div id="venueMapSelection" style="width:100%;height:280px;aspect-ratio:1/1;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
+            </div>
+            <div style="width:320px;flex:0 0 320px;">
+              <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Saved session settings</div>
+              <div style="display:flex;flex-direction:column;gap:8px;">
+                <button class="btn btn-ghost btn-sm" id="addVenuePresetBtn" type="button">+ Save current venue preset</button>
+                ${venuePresets.length ? venuePresets.map(preset => {
+                    const venue = getVenueById(preset.venueId) || { name: 'Venue' };
+                    const active = activeVenuePresetId === preset.id;
+                    return `
+                      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;border:1px solid ${active ? 'rgba(34,197,94,0.7)' : 'rgba(255,255,255,0.12)'};background:${active ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.02)'};font-size:12px;color:var(--text-main)">
+                        <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
+                          <strong>${venue.name}</strong>
+                          <span style="color:var(--text-muted)">${(preset.slots || []).length} slots · ${(preset.gameIds || []).length} activities</span>
+                        </div>
+                        <button type="button" data-edit-preset-id="${preset.id}" class="btn btn-ghost btn-xs">Edit</button>
+                        <button type="button" data-remove-preset-id="${preset.id}" class="btn btn-danger btn-xs">Delete</button>
                       </div>
-                      <button type="button" data-edit-preset-id="${preset.id}" class="btn btn-ghost btn-xs">Edit</button>
-                      <button type="button" data-remove-preset-id="${preset.id}" class="btn btn-danger btn-xs">Delete</button>
-                    </div>
-                  `;
-              }).join('') : '<span style="font-size:12px;color:var(--text-muted)">No saved presets yet.</span>'}
+                    `;
+                }).join('') : '<span style="font-size:12px;color:var(--text-muted)">No saved presets yet.</span>'}
+              </div>
             </div>
           </div>
 
@@ -1942,7 +1945,8 @@
       (async () => {
         try {
           await loadGoogleMapsScript();
-          if (!window.google || !window.google.maps) return;
+          await waitForGoogleMapsReady();
+          if (!window.google || !window.google.maps || typeof google.maps.Map !== 'function') return;
 
           const defaultCenter = getCalgaryCenterFallback();
           const map = new google.maps.Map(mapEl, {
@@ -1955,10 +1959,35 @@
             fullscreenControl: false
           });
 
-          const userLocation = { lat: defaultCenter.lat, lng: defaultCenter.lng };
+          const bounds = new google.maps.LatLngBounds();
+          bounds.extend(defaultCenter);
+
+          const allVenueMarkers = [];
+          venues.forEach((v) => {
+            const lat = Number(v.lat);
+            const lng = Number(v.lng);
+            const valid = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+            if (!valid) return;
+            const marker = new google.maps.Marker({
+              map,
+              position: { lat, lng },
+              title: v.name,
+              label: { text: v.name, color: '#ffffff', fontSize: '11px', fontWeight: '700' }
+            });
+            allVenueMarkers.push({ marker, venue: v });
+            bounds.extend({ lat, lng });
+            marker.addListener('click', async () => {
+              if (venueSelect) {
+                venueSelect.value = v.id;
+                venueSelect.dispatchEvent(new Event('change'));
+              }
+            });
+          });
+
           if (navigator && navigator.geolocation) {
             navigator.geolocation.getCurrentPosition((position) => {
               const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
+              bounds.extend(pos);
               const userMarker = new google.maps.Marker({
                 map,
                 position: pos,
@@ -1972,8 +2001,9 @@
                   strokeWeight: 2
                 }
               });
-              map.setCenter(pos);
-              map.setZoom(11);
+              if (!selectedVenueId) {
+                map.fitBounds(bounds, 32);
+              }
               if (userMarker) {
                 userMarker.addListener('click', () => {
                   if (venueSelect) venueSelect.value = '';
@@ -1981,31 +2011,11 @@
                 });
               }
             }, () => {
-              map.setCenter(defaultCenter);
+              if (!selectedVenueId) {
+                map.fitBounds(bounds, 32);
+              }
             }, { enableHighAccuracy: true, timeout: 10000 });
           }
-
-          const bounds = new google.maps.LatLngBounds();
-          bounds.extend(defaultCenter);
-          venues.forEach((v) => {
-            const lat = Number(v.lat);
-            const lng = Number(v.lng);
-            const valid = Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-            if (!valid) return;
-            const marker = new google.maps.Marker({
-              map,
-              position: { lat, lng },
-              title: v.name,
-              label: { text: v.name, color: '#ffffff', fontSize: '11px', fontWeight: '700' }
-            });
-            bounds.extend({ lat, lng });
-            marker.addListener('click', async () => {
-              if (venueSelect) {
-                venueSelect.value = v.id;
-                venueSelect.dispatchEvent(new Event('change'));
-              }
-            });
-          });
 
           if (selectedVenueId) {
             const selectedVenue = getVenueById(selectedVenueId);
@@ -2018,7 +2028,11 @@
               }
             }
           } else {
-            map.fitBounds(bounds, 30);
+            setTimeout(() => {
+              if (!selectedVenueId && typeof google.maps.LatLngBounds === 'function') {
+                map.fitBounds(bounds, 32);
+              }
+            }, 250);
           }
         } catch (err) {
           console.warn('Venue map selection unavailable:', err);
@@ -2614,6 +2628,16 @@
       return marker;
     }
     return new google.maps.Marker(options);
+  }
+
+  async function waitForGoogleMapsReady(timeoutMs = 15000) {
+    const start = Date.now();
+    while (!(window.google && window.google.maps && typeof google.maps.Map === 'function' && typeof google.maps.Marker === 'function')) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('Google Maps is still initializing. Please refresh or confirm the Maps JavaScript API is enabled.');
+      }
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
   }
 
   async function waitForGooglePlacesReady(timeoutMs = 15000) {
