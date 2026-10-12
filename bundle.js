@@ -1872,7 +1872,15 @@
 
               <div style="display:flex;flex-direction:column;gap:10px;">
                 <div style="font-size:12px;font-weight:700;color:var(--text-muted)">${t('savedSessionSettings')}</div>
-                <button class="btn btn-ghost btn-sm" id="addVenuePresetBtn" type="button" ${selectedVenueId && selectedGames.size > 0 ? '' : 'disabled'}>+ ${t('saveCurrentVenuePreset')}</button>
+                <button
+                  class="btn btn-primary btn-sm"
+                  id="addVenuePresetBtn"
+                  type="button"
+                  style="font-weight:700;box-shadow:0 10px 22px rgba(59,130,246,0.28);border:1px solid rgba(96,165,250,0.65);"
+                  ${selectedVenueId && selectedGames.size > 0 ? '' : 'disabled'}
+                >
+                  + ${t('saveCurrentVenuePreset')}
+                </button>
                 ${venuePresets.length ? venuePresets.map(preset => {
                     const venue = getVenueById(preset.venueId) || { name: lang === 'zh' ? '场地' : 'Venue' };
                     const active = activeVenuePresetId === preset.id;
@@ -1896,11 +1904,6 @@
             <div style="flex:1;min-width:0;">
               <div id="venueMapSelection" style="width:100%;height:280px;aspect-ratio:1/1;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
             </div>
-          </div>
-
-          <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px">
-            <span id="saveFeedbackB" style="color:var(--success);font-weight:700;font-size:14px;display:none">✓ ${t('successMsg')}</span>
-            <button class="btn btn-secondary" id="savePrefBtn">💾 ${t('saveMySettings')}</button>
           </div>
         </div>
       </div>
@@ -2243,38 +2246,10 @@
       };
     });
 
-    container.querySelector('#savePrefBtn').onclick = async () => {
-      const filteredGames = Array.from(selectedGames).filter(gid => isVenueGameSupported(selectedVenueId, gid));
-      if (!filteredGames || filteredGames.length === 0) {
-        alert(t('selectCategoryBeforePreset'));
-        return;
-      }
-      const presetVenueId = selectedVenueId || (venues[0] ? venues[0].id : null);
-      if (!presetVenueId) {
-        alert(t('chooseVenueBeforePreset'));
-        return;
-      }
-      const nextPreset = {
-        id: activeVenuePresetId || 'preset_' + Date.now().toString(36),
-        venueId: presetVenueId,
-        slots: Array.from(selectedSlots),
-        gameIds: filteredGames,
-        label: `${getVenueById(presetVenueId)?.name || (lang === 'zh' ? '场地' : 'Venue')} · ${Array.from(selectedSlots).length || 0} ${lang === 'zh' ? '个时段' : 'slots'}`
-      };
-      const nextPresets = normalizeVenuePresetList(activeVenuePresetId
-        ? venuePresets.map(p => p.id === activeVenuePresetId ? nextPreset : p)
-        : [...venuePresets, nextPreset]);
-      try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), filteredGames, presetVenueId, nextPresets);
-        activeVenuePresetId = nextPreset.id;
-        const fb = container.querySelector('#saveFeedbackB');
-        if (fb) {
-          fb.style.display = 'inline-block';
-          setTimeout(() => { fb.style.display = 'none'; }, 2500);
-        }
-        renderFeatureB(container);
-      } catch (err) { alert(err.message); }
-    };
+    const saveFeedbackB = container.querySelector('#saveFeedbackB');
+    if (saveFeedbackB) {
+      saveFeedbackB.remove();
+    }
 
     container.querySelectorAll('.confirm-btn').forEach(btn => {
       btn.onclick = async () => {
