@@ -1500,8 +1500,8 @@
     const confirmedCount = (m.confirmedUserIds || []).length;
     const fullyConfirmed = memberCount > 0 && confirmedCount >= memberCount;
     return `
-      <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''}" style="padding:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+      <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''}" style="padding:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:6px">
           <div style="display:flex;align-items:center;gap:10px">
             <span class="sport-icon-wrap" style="width:42px;height:42px;background:rgba(255,255,255,0.06);border-radius:12px">${renderSportIcon(gameObj, 24)}</span>
             <div>
@@ -1513,7 +1513,7 @@
           </div>
           <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}" style="font-size:11px;padding:5px 8px">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
         </div>
-        <div style="color:var(--text-main);font-weight:700;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <div style="color:var(--text-main);font-weight:700;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
           <span>⏰ ${m.startT} - ${m.endT}</span>
           <span style="color:var(--text-muted)">•</span>
           <span>${memberCount} ${lang === 'zh' ? '成员' : 'members'}</span>
@@ -1540,9 +1540,9 @@
     const fullyConfirmed = (m.userIds || []).length > 0 && (m.confirmedUserIds || []).length >= (m.userIds || []).length;
     return `
       <div class="match-card ${isConfirmed ? 'confirmed' : ''} ${fullyConfirmed ? 'fully-confirmed' : ''} ${past ? 'past' : ''}">
-        <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:nowrap;min-height:200px;">
-          <div style="flex:1 1 52%;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;gap:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;flex-wrap:nowrap;min-height:170px;">
+          <div style="flex:1 1 54%;min-width:0;display:flex;flex-direction:column;justify-content:flex-start;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
               <div style="display:flex;align-items:center;gap:12px">
                 <span class="sport-icon-wrap" style="width:48px;height:48px;background:rgba(255,255,255,0.06);border-radius:14px">${renderSportIcon(gameObj, 28)}</span>
                 <div>
@@ -1555,8 +1555,8 @@
               </div>
               <span class="status-badge ${isConfirmed ? 'confirmed' : 'pending'}">${isConfirmed ? t('statusConfirmed') : t('statusPending')}</span>
             </div>
-            <div style="background:rgba(0,0,0,0.25);padding:10px 12px;border-radius:12px;">
-              <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:6px">${t('membersLabel')} (${(m.confirmedUserIds || []).length}/${(m.userIds || []).length} Confirmed)</span>
+            <div style="background:rgba(0,0,0,0.25);padding:8px 10px;border-radius:12px;">
+              <span style="font-size:12px;color:var(--text-muted);font-weight:700;display:block;margin-bottom:4px">${t('membersLabel')} (${(m.confirmedUserIds || []).length}/${(m.userIds || []).length} Confirmed)</span>
               <div style="display:flex;flex-wrap:wrap;gap:8px">
                 ${(m.userIds || []).map(uId => {
                   const u = allUsers.find(item => item.id === uId) || { name: uId, avatar: '👤' };
@@ -1584,13 +1584,13 @@
               </div>
             ` : '')}
           </div>
-          <div style="flex:0 0 48%;min-width:200px;display:flex;align-items:stretch;align-self:stretch;">
+          <div style="flex:0 0 42%;min-width:180px;display:flex;align-items:stretch;align-self:stretch;">
             ${(() => {
               const venue = getVenueById(m.venueId || '');
               if (!venue) {
-                return `<div style="width:100%;padding:18px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:170px;">📍 Venue map unavailable</div>`;
+                return `<div style="width:100%;padding:18px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:150px;">📍 Venue map unavailable</div>`;
               }
-              return `<div style="width:100%;height:100%;min-height:170px;border-radius:12px;overflow:hidden;display:flex;align-items:stretch;">${renderVenueMapEmbed(venue, 'square')}</div>`;
+              return `<div style="width:100%;height:100%;min-height:150px;border-radius:12px;overflow:hidden;display:flex;align-items:stretch;">${renderVenueMapEmbed(venue, 'square')}</div>`;
             })()}
           </div>
         </div>
@@ -1666,12 +1666,12 @@
   function renderVenueMapEmbed(venue, sizeLabel) {
     if (!venue || !venue.address) return '<span style="color:var(--text-muted)">📍 No venue mapped</span>';
     const query = encodeURIComponent(`${venue.name || venue.address} ${venue.address}`);
-    const mapHeight = sizeLabel === 'compact' ? '150px' : sizeLabel === 'square' ? '100%' : '220px';
+    const mapHeight = sizeLabel === 'compact' ? '150px' : sizeLabel === 'square' ? '220px' : '220px';
     const wrapperStyle = sizeLabel === 'square'
-      ? 'margin-top:0;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02);height:100%;min-height:180px;display:flex;flex-direction:column;'
+      ? 'margin-top:0;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02);height:100%;min-height:150px;display:flex;flex-direction:column;'
       : 'margin-top:12px;border:1px solid rgba(255,255,255,0.12);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)';
     const iframeStyle = sizeLabel === 'square'
-      ? 'width:100%;height:100%;min-height:180px;border:0;display:block;filter:grayscale(0.2) contrast(1.1);aspect-ratio:1/1;'
+      ? 'width:100%;height:220px;border:0;display:block;filter:grayscale(0.2) contrast(1.1);aspect-ratio:1.6/1;'
       : `width:100%;height:${mapHeight};border:0;display:block;filter:grayscale(0.2) contrast(1.1);`;
     return `
       <div style="${wrapperStyle}">
