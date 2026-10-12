@@ -67,7 +67,7 @@
       manageVenuesBtn: "Manage Venues (Admin)",
       googleMapsApiKeyLabel: "Google Maps API Key",
       googleMapsApiKeyHelp: "Stored in app settings, not in source code.",
-      savePrefBtn: "Save Availability & Activity Choices",
+      savePrefBtn: "Add This Session Setting",
       b2Title: "Auto Match",
       b2Sub: "Auto pre-matched sessions based on continuous time intersection & identical activity choice.",
       confirmSession: "Confirm Attendance (2nd Step)",
@@ -187,7 +187,7 @@
       manageVenuesBtn: "管理活动场地 (管理员专用)",
       googleMapsApiKeyLabel: "Google Maps API Key",
       googleMapsApiKeyHelp: "仅保存在应用设置中，不会出现在源代码明文里。",
-      savePrefBtn: "保存我的时间与活动设置",
+      savePrefBtn: "添加该场次设置",
       b2Title: "自动匹配 (B2)",
       b2Sub: "系统自动提取同项目用户的连续交集时间段打包合并为组局场次。",
       confirmSession: "二次确认参加 (2nd Step)",
@@ -639,20 +639,26 @@
     async autoGenerateGameMatches() {
       const grouped = {};
       Object.entries(this.data.userGamePreferences).forEach(([userId, pref]) => {
-        const slots = normalizeSlotList(pref && pref.slots ? pref.slots : []);
-        const games = Array.from(new Set(pref && pref.gameIds ? pref.gameIds : []));
-        const venueId = pref && pref.venueId ? pref.venueId : null;
-        if (!venueId) return;
-        games.forEach(gameId => {
-          slots.forEach(slotKey => {
-            const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2})\|([0-9]{2}:[0-9]{2})$/.exec(String(slotKey));
-            if (!m) return;
-            const [, dayKey, timeStr] = m;
-            const minute = timeToMinutes(timeStr);
-            const key = `${dayKey}___${gameId}___${venueId}`;
-            if (!grouped[key]) grouped[key] = {};
-            if (!grouped[key][userId]) grouped[key][userId] = new Set();
-            grouped[key][userId].add(minute);
+        const presetList = Array.isArray(pref && pref.venuePresets) && pref.venuePresets.length
+          ? pref.venuePresets
+          : [{ venueId: pref && pref.venueId ? pref.venueId : null, slots: pref && pref.slots ? pref.slots : [], gameIds: pref && pref.gameIds ? pref.gameIds : [] }];
+
+        presetList.forEach((preset) => {
+          const venueId = preset && preset.venueId ? preset.venueId : (pref && pref.venueId ? pref.venueId : null);
+          const slots = normalizeSlotList(preset && preset.slots ? preset.slots : (pref && pref.slots ? pref.slots : []));
+          const games = Array.from(new Set(preset && preset.gameIds ? preset.gameIds : (pref && pref.gameIds ? pref.gameIds : [])));
+          if (!venueId) return;
+          games.forEach(gameId => {
+            slots.forEach(slotKey => {
+              const m = /^([0-9]{4}-[0-9]{2}-[0-9]{2})\|([0-9]{2}:[0-9]{2})$/.exec(String(slotKey));
+              if (!m) return;
+              const [, dayKey, timeStr] = m;
+              const minute = timeToMinutes(timeStr);
+              const key = `${dayKey}___${gameId}___${venueId}`;
+              if (!grouped[key]) grouped[key] = {};
+              if (!grouped[key][userId]) grouped[key][userId] = new Set();
+              grouped[key][userId].add(minute);
+            });
           });
         });
       });
@@ -1378,6 +1384,7 @@
   let activeSubTabB = 'viewB1';
   let pastHubExpanded = false;
   let calendarRange = null;
+  let activeVenuePresetId = null;
 
   function startOfLocalDay(d) {
     const x = new Date(d);
@@ -1732,10 +1739,11 @@
     const matches = store.getGameMatches();
     const lang = getLang();
 
-    const selectedSlots = new Set(normalizeSlotList(userPref.slots || []));
-    const selectedGames = new Set(Array.from(new Set(userPref.gameIds || [])));
-    const selectedVenueId = userPref.venueId || '';
     const venuePresets = Array.isArray(userPref.venuePresets) ? userPref.venuePresets : [];
+    const activePreset = activeVenuePresetId ? venuePresets.find(p => p.id === activeVenuePresetId) || null : null;
+    const selectedSlots = new Set(normalizeSlotList(activePreset ? (activePreset.slots || []) : (userPref.slots || [])));
+    const selectedGames = new Set(Array.from(new Set(activePreset ? (activePreset.gameIds || []) : (userPref.gameIds || []))));
+    const selectedVenueId = activePreset ? (activePreset.venueId || '') : (userPref.venueId || '');
     const visibleGames = selectedVenueId ? games.filter(g => isVenueGameSupported(selectedVenueId, g.id)) : games;
 
     const rangeDates = eachDateInclusive(calendarRange.from, calendarRange.to);
@@ -1823,16 +1831,26 @@
               </select>
               ${currentUser.role === 'admin' ? `<button class="btn btn-ghost btn-sm" id="manageVenuesBtn">${t('manageVenuesBtn')}</button>` : ''}
             </div>
-            <div id="venueMapSelection" style="width:100%;height:240px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
+            <div id="venueMapSelection" style="width:100%;height:280px;aspect-ratio:1/1;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)"></div>
           </div>
 
           <div style="margin-bottom:16px">
-            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Saved Venue Presets</div>
+            <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">Saved session settings</div>
             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
               <button class="btn btn-ghost btn-sm" id="addVenuePresetBtn" type="button">+ Save current venue preset</button>
               ${venuePresets.length ? venuePresets.map(preset => {
-                  const label = (getVenueById(preset.venueId) || { name: 'Venue' }).name;
-                  return `<span class="venue-preset-pill" data-preset-id="${preset.id}" style="display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.04);font-size:12px;color:var(--text-main)"><span>${label} · ${preset.slots.length || 0} slots</span><button type="button" data-remove-preset-id="${preset.id}" class="btn btn-ghost btn-xs" style="padding:2px 6px;min-width:auto;border-radius:999px">✕</button></span>`;
+                  const venue = getVenueById(preset.venueId) || { name: 'Venue' };
+                  const active = activeVenuePresetId === preset.id;
+                  return `
+                    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;border:1px solid ${active ? 'rgba(34,197,94,0.7)' : 'rgba(255,255,255,0.12)'};background:${active ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.02)'};font-size:12px;color:var(--text-main)">
+                      <div style="display:flex;flex-direction:column;gap:2px;min-width:180px">
+                        <strong>${venue.name}</strong>
+                        <span style="color:var(--text-muted)">${(preset.slots || []).length} slots · ${(preset.gameIds || []).length} activities</span>
+                      </div>
+                      <button type="button" data-edit-preset-id="${preset.id}" class="btn btn-ghost btn-xs">Edit</button>
+                      <button type="button" data-remove-preset-id="${preset.id}" class="btn btn-danger btn-xs">Delete</button>
+                    </div>
+                  `;
               }).join('') : '<span style="font-size:12px;color:var(--text-muted)">No saved presets yet.</span>'}
             </div>
           </div>
@@ -1851,13 +1869,6 @@
               }).join('')}
             </div>
           </div>
-
-          ${selectedVenueId ? `
-            <div style="margin-bottom:20px">
-              <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px">${t('venueMapLabel')}</div>
-              ${renderVenueMapEmbed(getVenueById(selectedVenueId), 'wide')}
-            </div>
-          ` : ''}
 
           <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px">
             <span id="saveFeedbackB" style="color:var(--success);font-weight:700;font-size:14px;display:none">✓ ${t('successMsg')}</span>
@@ -2034,15 +2045,24 @@
         const nextPresets = [...venuePresets, nextPreset];
         try {
           await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, nextPresets);
+          activeVenuePresetId = nextPreset.id;
           renderFeatureB(container);
         } catch (err) { alert(err.message); }
       };
     }
 
+    container.querySelectorAll('[data-edit-preset-id]').forEach(btn => {
+      btn.onclick = () => {
+        activeVenuePresetId = btn.dataset.editPresetId;
+        renderFeatureB(container);
+      };
+    });
+
     container.querySelectorAll('[data-remove-preset-id]').forEach(btn => {
       btn.onclick = async () => {
         const presetId = btn.dataset.removePresetId;
         const nextPresets = venuePresets.filter(p => p.id !== presetId);
+        if (activeVenuePresetId === presetId) activeVenuePresetId = null;
         try {
           await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), Array.from(selectedGames), selectedVenueId || null, nextPresets);
           renderFeatureB(container);
@@ -2177,13 +2197,30 @@
         alert('Please select at least one activity category before saving your availability.');
         return;
       }
+      const presetVenueId = selectedVenueId || (venues[0] ? venues[0].id : null);
+      if (!presetVenueId) {
+        alert('Please choose a venue before adding this session setting.');
+        return;
+      }
+      const nextPreset = {
+        id: activeVenuePresetId || 'preset_' + Date.now().toString(36),
+        venueId: presetVenueId,
+        slots: Array.from(selectedSlots),
+        gameIds: filteredGames,
+        label: `${getVenueById(presetVenueId)?.name || 'Venue'} · ${Array.from(selectedSlots).length || 0} slots`
+      };
+      const nextPresets = activeVenuePresetId
+        ? venuePresets.map(p => p.id === activeVenuePresetId ? nextPreset : p)
+        : [...venuePresets, nextPreset];
       try {
-        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), filteredGames, selectedVenueId || null, venuePresets);
+        await store.saveUserGamePref(currentUser.id, Array.from(selectedSlots), filteredGames, presetVenueId, nextPresets);
+        activeVenuePresetId = nextPreset.id;
         const fb = container.querySelector('#saveFeedbackB');
         if (fb) {
           fb.style.display = 'inline-block';
           setTimeout(() => { fb.style.display = 'none'; }, 2500);
         }
+        renderFeatureB(container);
       } catch (err) { alert(err.message); }
     };
 
