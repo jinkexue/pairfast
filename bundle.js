@@ -1584,13 +1584,13 @@
               </div>
             ` : '')}
           </div>
-          <div style="flex:0 0 50%;min-width:220px;display:flex;align-items:flex-start;align-self:flex-start;">
+          <div style="flex:0 0 50%;min-width:220px;display:flex;align-items:stretch;align-self:stretch;">
             ${(() => {
               const venue = getVenueById(m.venueId || '');
               if (!venue) {
                 return `<div style="width:100%;padding:18px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:200px;">📍 Venue map unavailable</div>`;
               }
-              return `<div style="width:100%;min-height:200px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>`;
+              return `<div style="width:100%;height:100%;min-height:200px;border-radius:12px;overflow:hidden;display:flex;align-items:stretch;">${renderVenueMapEmbed(venue, 'square')}</div>`;
             })()}
           </div>
         </div>
@@ -2950,10 +2950,10 @@
     const renderHomeBMatchPreview = (m, idx) => {
       const venue = getVenueById(m.venueId || '');
       return `
-        <div style="display:flex;align-items:flex-start;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:nowrap;min-height:190px;">
-          <div style="flex:1 1 55%;min-width:0;display:flex;align-items:flex-start;">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
-          <div style="flex:0 0 45%;min-width:170px;display:flex;align-items:flex-start;max-width:50%;">
-            ${venue ? `<div style="width:100%;min-height:190px;border-radius:12px;overflow:hidden;">${renderVenueMapEmbed(venue, 'square')}</div>` : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:190px;">📍 Venue map unavailable</div>'}
+        <div style="display:flex;align-items:stretch;gap:12px;margin-top:${idx === 0 ? '12px' : '10px'};flex-wrap:nowrap;min-height:190px;">
+          <div style="flex:1 1 55%;min-width:0;display:flex;align-items:stretch;">${renderCompactMatchCard(m, store.getGames(), lang)}</div>
+          <div style="flex:0 0 45%;min-width:170px;display:flex;align-items:stretch;max-width:50%;">
+            ${venue ? `<div style="width:100%;height:100%;min-height:190px;border-radius:12px;overflow:hidden;display:flex;align-items:stretch;">${renderVenueMapEmbed(venue, 'square')}</div>` : '<div style="width:100%;padding:12px;border:1px dashed rgba(255,255,255,0.18);border-radius:12px;color:var(--text-muted);font-size:12px;display:grid;place-items:center;min-height:190px;">📍 Venue map unavailable</div>'}
           </div>
         </div>
       `;
