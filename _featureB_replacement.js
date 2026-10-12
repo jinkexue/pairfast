@@ -113,7 +113,7 @@
 
   function renderSportIcon(g, size) {
     const sz = size || 24;
-    const name = ((g && g.name) || '').toLowerCase();
+    const name = String((g && g.name) || '').toLowerCase();
     const icon = (g && g.icon) || '';
     const isPickle = icon === 'pickle' || name.includes('pickle') || name.includes('匹克');
     if (isPickle) {

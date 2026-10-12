@@ -69,7 +69,8 @@ export function mapPref(row) {
   return {
     slots: parseJsonField(row.slots, []),
     gameIds: parseJsonField(row.game_ids, []),
-    venueId: row.venue_id || null
+    venueId: row.venue_id || null,
+    venuePresets: parseJsonField(row.venue_presets, [])
   };
 }
 
@@ -206,12 +207,19 @@ export async function ensureUserPreferencesTable(db) {
       user_id TEXT PRIMARY KEY,
       slots TEXT NOT NULL DEFAULT '[]',
       game_ids TEXT NOT NULL DEFAULT '[]',
-      venue_id TEXT NULL
+      venue_id TEXT NULL,
+      venue_presets TEXT NOT NULL DEFAULT '[]'
     )
   `).run();
 
   try {
     await db.prepare('ALTER TABLE user_preferences ADD COLUMN venue_id TEXT').run();
+  } catch (_) {
+    // Column already exists.
+  }
+
+  try {
+    await db.prepare('ALTER TABLE user_preferences ADD COLUMN venue_presets TEXT NOT NULL DEFAULT "[]"').run();
   } catch (_) {
     // Column already exists.
   }

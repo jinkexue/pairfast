@@ -154,15 +154,16 @@ export async function onRequest(context) {
       const slots = JSON.stringify(body.slots || []);
       const gameIds = JSON.stringify(body.gameIds || []);
       const venueId = body.venueId || null;
+      const venuePresets = JSON.stringify(Array.isArray(body.venuePresets) ? body.venuePresets : []);
       await db
         .prepare(`
-          INSERT INTO user_preferences (user_id, slots, game_ids, venue_id) VALUES (?, ?, ?, ?)
-          ON CONFLICT(user_id) DO UPDATE SET slots = excluded.slots, game_ids = excluded.game_ids, venue_id = excluded.venue_id
+          INSERT INTO user_preferences (user_id, slots, game_ids, venue_id, venue_presets) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET slots = excluded.slots, game_ids = excluded.game_ids, venue_id = excluded.venue_id, venue_presets = excluded.venue_presets
         `)
-        .bind(id, slots, gameIds, venueId)
+        .bind(id, slots, gameIds, venueId, venuePresets)
         .run();
       await recomputeGameMatches(db, new Date().toISOString().slice(0, 10));
-      return json({ ok: true, slots: body.slots || [], gameIds: body.gameIds || [], venueId });
+      return json({ ok: true, slots: body.slots || [], gameIds: body.gameIds || [], venueId, venuePresets: Array.isArray(body.venuePresets) ? body.venuePresets : [] });
     }
 
     // /api/settings
